@@ -1,14 +1,18 @@
 # Colab Session
 
 Một script độc lập: tạo session Colab → clone GitHub → mount Google Drive trong repo.
-Không phụ thuộc Solar Filament hay thư mục hiện tại. Chạy từ máy local với `uv`:
+Chạy từ máy local, trong thư mục project, với `uv` và Python 3.12 trở lên:
 
 ```bash
-uv run --script start_colab.py https://github.com/OWNER/REPO
-uv run --script start_colab.py https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
+uv sync
+uv run start_colab.py https://github.com/OWNER/REPO
+uv run start_colab.py https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
 ```
 
-`uv` tự chuẩn bị Python và dependencies của script. Đăng nhập Google theo hướng dẫn
+Dependencies được khai báo trong `pyproject.toml` và khóa phiên bản trong `uv.lock`.
+`uv sync` cài `google-colab-cli` và `jupyter-kernel-client` vào `.venv` của project.
+Kết nối SSH cần OpenSSH trên máy local; VS Code cần extension Remote-SSH nếu sử dụng.
+Đăng nhập Google theo hướng dẫn
 của CLI; bước mount Drive có thể yêu cầu xác nhận trong trình duyệt.
 Tool dùng [Google Colab CLI](https://github.com/googlecolab/google-colab-cli);
 cần tài khoản Colab đủ điều kiện sử dụng CLI và runtime đã chọn.
@@ -26,9 +30,9 @@ dùng đường dẫn CLI được in trong lệnh kết nối và SSH key của
 
 Repo public dùng ngay. Repo private cần thông tin xác thực Git được chuẩn bị trên VM;
 script hiện không chuyển token/SSH key từ local, không nhận token trong URL.
-Không cài dependencies của repo và không chạy training; thực hiện các bước này sau
-khi kết nối. Code ở ổ tạm: commit/push để lưu thay đổi. Chỉ dữ liệu ghi vào Drive
+Dependencies và các lệnh chạy của repo đích do bạn chuẩn bị sau khi kết nối.
+Code ở ổ tạm: commit/push để lưu thay đổi. Chỉ dữ liệu ghi vào Drive
 mới tồn tại trên Drive sau khi dừng VM. Nếu setup lỗi, session được giữ lại để kiểm tra;
 dùng lệnh `stop` được in ra khi không cần nữa.
 
-Kiểm tra local (không tạo VM): `python3 -m unittest discover -s tests -v`.
+Kiểm tra local (không tạo VM): `uv run python -m unittest discover -s tests -v`.

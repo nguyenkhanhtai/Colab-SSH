@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.12"
-# dependencies = ["google-colab-cli==0.7.4", "jupyter-kernel-client==0.9.0"]
-# ///
 """Create a Colab session, clone a GitHub repository, and mount Drive inside it."""
 
 import argparse
@@ -58,7 +54,7 @@ def main(argv=None):
         parser.error("Invalid session name: use letters, numbers, hyphens and underscores")
     cli = shutil.which("colab")
     if cli is None:
-        parser.error("Colab CLI missing. Run: uv run --script start_colab.py <github-url>")
+        parser.error("Colab CLI missing. Run: uv run start_colab.py <github-url>")
     remote = f"/content/{name}"
     stop = shlex.join([cli, "stop", "-s", session])
     print(f"Creating {session} ({args.gpu})", flush=True)
