@@ -17,12 +17,22 @@ class SessionTests(unittest.TestCase):
         env = patch.dict(os.environ, {}, clear=True)
         env.start()
         self.addCleanup(env.stop)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        default = patch('start_colab.DEFAULT_AUTH', Path(temp.name) / 'auth.json')
+        default.start()
+        self.addCleanup(default.stop)
         config = patch('start_colab.configure', return_value=(Path('/tmp/ssh-test-config'), 'test'))
         config.start()
         self.addCleanup(config.stop)
         install = patch('start_colab.install')
         self.install = install.start()
         self.addCleanup(install.stop)
+        for target, value in [('load_profile', {'tools': [], 'extensions': [], 'remote_settings': {}}),
+                              ('register_extensions', None), ('apply_environment', None)]:
+            mock = patch('start_colab.' + target, return_value=value)
+            mock.start()
+            self.addCleanup(mock.stop)
 
     def test_urls(self):
         self.assertEqual(app.github_url('https://github.com/a/repo.git'),
@@ -37,8 +47,10 @@ class SessionTests(unittest.TestCase):
     def test_sequence_and_failure(self, run, which):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(['https://github.com/a/b', '--session', 'test']), 0)
-        self.assertEqual([c.args[0][1] for c in run.call_args_list],
-                         ['new', 'exec', 'drivemount', 'exec'])
+        self.assertEqual(run.call_args_list[0].args[0][1], 'new')
+        self.assertEqual(run.call_args_list[1].args[0][0], 'ssh')
+        self.assertEqual(run.call_args_list[2].args[0][1], 'drivemount')
+        self.assertEqual(run.call_args_list[3].args[0][0], 'ssh')
         self.assertEqual(run.call_args_list[2].args[0][-1], '/content/b/drive')
         self.install.assert_called_once_with(Path('/tmp/ssh-test-config'))
         run.reset_mock()
@@ -77,6 +89,35 @@ class SessionTests(unittest.TestCase):
         with patch.dict(os.environ, {'GH_TOKEN': 'env-secret'}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(['https://github.com/a/b']), 0)
         self.assertEqual(json.loads(run.call_args_list[1].kwargs['input']), 'env-secret')
+
+    @patch('start_colab.shutil.which', return_value='/bin/colab')
+    @patch('start_colab.subprocess.run')
+    def test_pat_file_overrides_environment_without_exposure(self, run, which):
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / 'token.pat'
+            file.write_text('file-secret\n')
+            with patch.dict(os.environ, {'GH_TOKEN': 'env-secret'}), contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(app.main(['https://github.com/a/b', '--pat-file', str(file)]), 0)
+        self.assertEqual(json.loads(run.call_args_list[1].kwargs['input']), 'file-secret')
+        self.assertNotIn('file-secret', str(run.call_args_list[1].args))
+        self.assertNotIn('file-secret', output.getvalue())
+
+    @patch('start_colab.shutil.which', return_value='/bin/colab')
+    @patch('start_colab.subprocess.run')
+    def test_bad_pat_file_does_not_create_vm(self, run, which):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            app.main(['https://github.com/a/b', '--pat-file', '/nonexistent/token.pat'])
+        run.assert_not_called()
+
+    @patch('start_colab.shutil.which', return_value='/bin/colab')
+    @patch('start_colab.subprocess.run')
+    def test_default_auth_config(self, run, which):
+        app.DEFAULT_AUTH.parent.mkdir(exist_ok=True)
+        (app.DEFAULT_AUTH.parent / 'github.pat').write_text('default-secret')
+        app.DEFAULT_AUTH.write_text('{"github_pat_file": "github.pat"}')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(['https://github.com/a/b']), 0)
+        self.assertEqual(json.loads(run.call_args_list[1].kwargs['input']), 'default-secret')
 
     @patch('start_colab.getpass.getpass', return_value='')
     @patch('start_colab.shutil.which', return_value='/bin/colab')

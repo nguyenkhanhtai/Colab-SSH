@@ -7,7 +7,7 @@ import setup_ssh
 
 
 class SSHConfigTests(unittest.TestCase):
-    def test_sessions_keep_separate_hosts_and_keys(self):
+    def test_latest_session_replaces_host(self):
         with tempfile.TemporaryDirectory(prefix='ssh config ') as tmp:
             root = Path(tmp)
             key = root / 'identity'
@@ -15,13 +15,13 @@ class SSHConfigTests(unittest.TestCase):
             with patch.object(setup_ssh, 'ROOT', root):
                 config, _ = setup_ssh.configure('colab-first', '/path with spaces/colab', key)
                 setup_ssh.configure('colab-second', '/path with spaces/colab', key)
-                setup_ssh.configure('colab-first', '/path with spaces/colab', key)
             text = config.read_text()
-            self.assertEqual(text.count('Host colab-first\n'), 1)
-            self.assertEqual(text.count('Host colab-second\n'), 1)
-            self.assertIn('colab-first.known_hosts', text)
+            self.assertEqual(text.count('Host colab-session\n'), 1)
+            self.assertIn('HostName colab-second\n', text)
+            self.assertNotIn('colab-first', text)
             self.assertIn('colab-second.known_hosts', text)
-            self.assertIn("'/path with spaces/colab' ssh", text)
+            self.assertIn("--cli '/path with spaces/colab'", text)
+            self.assertIn('ssh_proxy.py', text)
             self.assertIn('StrictHostKeyChecking accept-new', text)
 
     def test_install_preserves_existing_config(self):

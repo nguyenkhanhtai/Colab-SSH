@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import getpass
 import json
 import os
+from pathlib import Path
 import re
 import shlex
 import shutil
@@ -14,6 +15,10 @@ import sys
 import warnings
 from uuid import uuid4
 from setup_ssh import configure, install
+from setup_environment import load_profile, register_extensions, apply as apply_environment
+from ssh_proxy import command as proxy_command
+from credentials import DEFAULT_AUTH, read_auth, read_pat
+from setup_gpu import remote_code as gpu_setup_code
 
 
 def github_url(value):
@@ -63,11 +68,15 @@ os.chdir(repo)
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repo", type=github_url, help="GitHub HTTPS repository URL")
-    parser.add_argument("--gpu", default="T4")
+    parser.add_argument("--gpu", default="T4", type=str.upper, choices=['T4', 'L4', 'G4', 'A100', 'H100'])
     parser.add_argument("--session", help="Name for a NEW session")
     parser.add_argument("--branch", help="Branch or tag to clone")
     parser.add_argument("--drive-dir", default="drive", help="Mount directory inside the repo")
-    parser.add_argument("--pat", action="store_true", help="Prompt for a GitHub PAT (hidden input); otherwise use GH_TOKEN if set")
+    auth = parser.add_mutually_exclusive_group()
+    auth.add_argument("--pat", action="store_true", help="Prompt for a GitHub PAT (hidden input)")
+    auth.add_argument("--pat-file", type=Path, help="Read a GitHub PAT from a local text file")
+    auth.add_argument("--auth-file", type=Path, help="JSON config containing credential file paths")
+    parser.add_argument("--skip-environment", action="store_true", help="Skip CLI installation and VS Code profile")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", args.drive_dir):
         parser.error("--drive-dir must be a simple directory name, e.g. drive or data")
@@ -79,6 +88,17 @@ def main(argv=None):
     if cli is None:
         parser.error("Colab CLI missing. Run: uv run start_colab.py <github-url>")
     token = os.environ.get("GH_TOKEN", "")
+    try:
+        if args.pat_file:
+            token = read_pat(args.pat_file)
+        elif args.auth_file:
+            token = read_auth(args.auth_file, repo_url=url)
+            if not token:
+                parser.error('Auth config has no PAT for this repository')
+        elif not args.pat and DEFAULT_AUTH.is_file():
+            token = read_auth(DEFAULT_AUTH, repo_url=url) or token
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.pat:
         try:
             with warnings.catch_warnings():
@@ -90,46 +110,53 @@ def main(argv=None):
             return 1
         if not token:
             parser.error("PAT cannot be empty")
-    if token and not shutil.which("ssh"):
-        parser.error("OpenSSH is required to transfer the PAT securely to the VM")
+    if not shutil.which("ssh"):
+        parser.error("OpenSSH is required to prepare and verify the VM")
     remote = f"/content/{name}"
+    profile = None
+    if not args.skip_environment:
+        profile = load_profile()
+        register_extensions(profile)
     stop = shlex.join([cli, "stop", "-s", session])
     print(f"Creating {session} ({args.gpu})", flush=True)
     try:
         subprocess.run([cli, "new", "-s", session, "--gpu", args.gpu], check=True)
         print(f"Session: {session}\nStop when finished: {stop}", flush=True)
         try:
-            config, alias = configure(session, cli)
+            config, alias = configure(session, cli, gpu=args.gpu)
             install(config)
             print('SSH: ' + shlex.join(['ssh', '-F', str(config), alias]), flush=True)
             print(f'VS Code: Remote-SSH: Connect to Host → {alias}', flush=True)
         except OSError as exc:
             print(f'SSH setup could not complete: {exc}\n'
                   f'Retry: uv run setup_ssh.py --session {session}', file=sys.stderr)
-        if token:
-            # colab exec records code in history: send secrets only over SSH stdin.
-            proxy = shlex.join([cli, "ssh", "--proxy-mode", "-s", session])
-            code = clone_code(url, remote, args.branch, args.drive_dir, authenticated=True)
-            subprocess.run(["ssh", "-o", f"ProxyCommand={proxy}",
-                            "-o", "StrictHostKeyChecking=accept-new",
-                            "-o", "ConnectTimeout=30", f"root@{session}",
-                            "python3 -c " + shlex.quote(code)],
-                           input=json.dumps(token), text=True, check=True)
-            token = None
-        else:
-            subprocess.run([cli, "exec", "-s", session, "--timeout", "600"],
-                           input=clone_code(url, remote, args.branch, args.drive_dir), text=True, check=True)
+        # SSH propagates remote failures; colab exec may exit 0 after a Python error.
+        # Secrets travel over stdin rather than recorded notebook code.
+        proxy = shlex.join(proxy_command(cli, session, gpu=args.gpu))
+        ssh = ["ssh", "-o", f"ProxyCommand={proxy}",
+               "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+               "-o", "ConnectTimeout=30", f"root@{session}"]
+        gpu_check = gpu_setup_code(args.gpu)
+        code = gpu_check + clone_code(url, remote, args.branch, args.drive_dir, authenticated=bool(token))
+        subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
+                       input=json.dumps(token) if token else "", text=True, check=True)
+        token = None
+        if profile:
+            print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
+            apply_environment(ssh, profile)
         subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
-        subprocess.run([cli, "exec", "-s", session], input=(
+        verify = (
             f"from pathlib import Path\n"
+            f"assert Path({(remote + '/.git')!r}).is_dir(), 'Repository clone missing'\n"
             f"assert Path({(remote + '/' + args.drive_dir + '/MyDrive')!r}).is_dir(), 'Drive mount failed'\n"
-        ), text=True, check=True)
+        )
+        subprocess.run([*ssh, "python3 -c " + shlex.quote(verify)], check=True)
     except (subprocess.CalledProcessError, KeyboardInterrupt):
         print(f"Setup interrupted or failed. Session {session} may still be active.\n"
               f"Inspect: {shlex.join([cli, 'status', '-s', session])}\nStop: {stop}", file=sys.stderr)
         return 1
     print(f"READY: {remote}\nDrive: {remote}/{args.drive_dir}/MyDrive")
-    print("Connect: " + shlex.join([cli, "ssh", "-s", session]))
+    print("Connect: " + shlex.join(ssh))
     print("Browser: " + shlex.join([cli, "url", "-s", session]))
     print(f"Stop: {stop}")
     return 0

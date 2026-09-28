@@ -5,11 +5,12 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+from ssh_proxy import command as proxy_command
 
 ROOT = Path(__file__).resolve().parent
 
 
-def configure(session, cli, identity=None):
+def configure(session, cli, identity=None, gpu=None):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', session):
         raise ValueError('Invalid session name')
     key = Path(identity).expanduser().resolve() if identity else Path.home() / '.ssh/id_ed25519'
@@ -17,10 +18,10 @@ def configure(session, cli, identity=None):
         raise FileNotFoundError(f'SSH key missing: {key}. Create one with ssh-keygen -t ed25519')
     folder = ROOT / '.ssh'
     folder.mkdir(exist_ok=True)
-    alias = session
+    alias = 'colab-session'
     hosts = folder / f'{session}.known_hosts'
     hosts.touch(exist_ok=True)
-    proxy = shlex.join([str(cli), 'ssh', '--proxy-mode', '-s', session, '--identity', str(key)])
+    proxy = shlex.join(proxy_command(cli, session, key, gpu))
     entry = (f'Host {alias}\n'
              f'    HostName {session}\n'
              '    User root\n'
@@ -32,11 +33,8 @@ def configure(session, cli, identity=None):
              '    ServerAliveInterval 30\n'
              '    ServerAliveCountMax 3\n')
     config = folder / 'config'
-    # A distinct alias and known_hosts file for every VM prevents stale host keys.
-    existing = config.read_text() if config.exists() else ''
-    blocks = re.split(r'(?m)(?=^Host )', existing)
-    existing = ''.join(b for b in blocks if b.splitlines() and b.splitlines()[0] != f'Host {alias}')
-    config.write_text(existing.rstrip() + '\n\n' + entry)
+    # Generated config represents the current VM; host keys remain per session.
+    config.write_text(entry)
     config.chmod(0o600)
     return config, alias
 
