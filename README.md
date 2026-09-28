@@ -23,10 +23,23 @@ Nếu tên này đã tồn tại trong repo, script dừng để tránh che ho�
 Điểm mount được loại khỏi Git bằng `.git/info/exclude` chỉ trên VM.
 
 Mỗi lần chạy tạo session mới. `--session NAME` đặt tên cho session mới, không resume.
-Script in lệnh SSH, lấy URL trình duyệt và dừng session. Để dùng VS Code Remote-SSH,
-cấu hình host với `User root`, `HostName SESSION`, và
-`ProxyCommand /absolute/path/to/colab ssh --proxy-mode -s SESSION`;
-dùng đường dẫn CLI được in trong lệnh kết nối và SSH key của bạn.
+Script in lệnh SSH, lấy URL trình duyệt và dừng session. Nếu có SSH key
+`~/.ssh/id_ed25519`, tool tự tạo host riêng cho session trong `.ssh/config` của tool
+và thêm `Include` vào `~/.ssh/config` để VS Code thấy host ngay.
+Trong VS Code chọn **Remote-SSH: Connect to Host…** → đúng tên session được in ra,
+rồi mở `/content/REPO`.
+
+Để thiết lập lại SSH cho session đã có, chạy:
+
+```bash
+uv run setup_ssh.py --session SESSION
+```
+
+Lệnh tự đăng ký host vào SSH config. Có thể chạy ngay sau khi VM được tạo,
+kể cả khi bước mount Drive chưa hoàn tất. Với key khác, thêm
+`--identity /path/to/private_key`. Mỗi session có file host key riêng để tránh
+nhầm với VM trước. `.ssh/` của tool được loại khỏi Git. Thêm `--no-install` nếu
+chỉ muốn tạo config riêng mà chưa đăng ký vào `~/.ssh/config`.
 
 Repo public dùng ngay. Với repo private, thêm `--pat` để nhập GitHub Personal Access
 Token trong terminal (ký tự được ẩn):

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import warnings
 from uuid import uuid4
+from setup_ssh import configure, install
 
 
 def github_url(value):
@@ -97,6 +98,14 @@ def main(argv=None):
     try:
         subprocess.run([cli, "new", "-s", session, "--gpu", args.gpu], check=True)
         print(f"Session: {session}\nStop when finished: {stop}", flush=True)
+        try:
+            config, alias = configure(session, cli)
+            install(config)
+            print('SSH: ' + shlex.join(['ssh', '-F', str(config), alias]), flush=True)
+            print(f'VS Code: Remote-SSH: Connect to Host → {alias}', flush=True)
+        except OSError as exc:
+            print(f'SSH setup could not complete: {exc}\n'
+                  f'Retry: uv run setup_ssh.py --session {session}', file=sys.stderr)
         if token:
             # colab exec records code in history: send secrets only over SSH stdin.
             proxy = shlex.join([cli, "ssh", "--proxy-mode", "-s", session])

@@ -17,6 +17,12 @@ class SessionTests(unittest.TestCase):
         env = patch.dict(os.environ, {}, clear=True)
         env.start()
         self.addCleanup(env.stop)
+        config = patch('start_colab.configure', return_value=(Path('/tmp/ssh-test-config'), 'test'))
+        config.start()
+        self.addCleanup(config.stop)
+        install = patch('start_colab.install')
+        self.install = install.start()
+        self.addCleanup(install.stop)
 
     def test_urls(self):
         self.assertEqual(app.github_url('https://github.com/a/repo.git'),
@@ -34,6 +40,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual([c.args[0][1] for c in run.call_args_list],
                          ['new', 'exec', 'drivemount', 'exec'])
         self.assertEqual(run.call_args_list[2].args[0][-1], '/content/b/drive')
+        self.install.assert_called_once_with(Path('/tmp/ssh-test-config'))
         run.reset_mock()
         run.side_effect = [None, subprocess.CalledProcessError(1, 'clone')]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
