@@ -1,10 +1,12 @@
 """Capture VS Code preferences and prepare development tools on a Colab VM."""
 import argparse
+from io import BytesIO
 import json
 from pathlib import Path
 import re
 import shlex
 import subprocess
+import tarfile
 
 PROFILE = Path.home() / '.config/colab-ssh/environment.json'
 
@@ -129,6 +131,43 @@ print('Environment ready. Sign in with: codex login --device-auth; agy')
 def apply(ssh, profile):
     subprocess.run([*ssh, 'python3 -c ' + shlex.quote(remote_code())],
                    input=json.dumps(profile), text=True, check=True)
+
+
+def context_paths(home=None):
+    home = Path.home() if home is None else Path(home)
+    candidates = [
+        home / '.codex/AGENTS.md',
+        home / '.codex/skills',
+        home / '.codex/sessions',
+        home / '.codex/archived_sessions',
+        home / '.gemini/GEMINI.md',
+        home / '.gemini/antigravity-cli/skills',
+        home / '.gemini/antigravity/conversations',
+        home / '.gemini/antigravity-ide/conversations',
+    ]
+    return [path for path in candidates if path.exists()]
+
+
+def sync_context(ssh, home=None):
+    home = Path.home() if home is None else Path(home)
+    paths = context_paths(home)
+    if not paths:
+        return []
+    archive = BytesIO()
+
+    def safe_member(info):
+        basename = Path(info.name).name.lower()
+        secrets = {'auth.json', 'credentials.json', 'mcp_oauth_tokens.json', '.env'}
+        if (info.issym() or info.islnk() or basename in secrets or basename.endswith('.pat')
+                or '/.system/' in '/' + info.name or info.name.endswith('/.system')):
+            return None
+        return info
+
+    with tarfile.open(fileobj=archive, mode='w:gz') as bundle:
+        for path in paths:
+            bundle.add(path, arcname=path.relative_to(home), filter=safe_member)
+    subprocess.run([*ssh, 'mkdir -p /root && tar -xzf - -C /root'], input=archive.getvalue(), check=True)
+    return [str(path.relative_to(home)) for path in paths]
 
 
 def main():

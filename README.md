@@ -26,6 +26,16 @@ VS Code kết nối. Profile lấy từ VS Code local lần đầu và lưu tạ
 `~/.config/colab-ssh/environment.json` (không đưa vào Git). Theme và phím tắt tiếp tục dùng
 trực tiếp từ VS Code local. Profile không chứa token hay lịch sử đăng nhập.
 
+Tool cũng đồng bộ context chủ động qua SSH: `~/.codex/AGENTS.md`, Codex user
+skills, `~/.gemini/GEMINI.md` và Antigravity CLI user skills. Danh sách này là
+allowlist và bao gồm lịch sử hội thoại trong Codex `sessions`/`archived_sessions`
+cùng Antigravity CLI/IDE `conversations`. Tool không copy `auth.json`, `*.pat`,
+`.env`, MCP OAuth tokens, Codex rules/config/system skills, memories, brain,
+knowledge, logs hoặc cache. Nội dung người dùng từng dán trực tiếp vào hội thoại
+không thể tự động phân biệt với context thông thường và cũng sẽ được đồng bộ.
+Codex và Antigravity vẫn phải đăng nhập riêng trên Colab.
+`--skip-environment` bỏ qua cả cài CLI, profile VS Code và đồng bộ context.
+
 Installer: [Codex](https://developers.openai.com/codex/cli/) và
 [Antigravity](https://antigravity.google/docs/cli/install/).
 Các binary đã có sẵn sẽ được dùng lại. Phiên bản CLI được in khi setup.

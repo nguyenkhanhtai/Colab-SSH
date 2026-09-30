@@ -29,7 +29,7 @@ class SessionTests(unittest.TestCase):
         self.install = install.start()
         self.addCleanup(install.stop)
         for target, value in [('load_profile', {'tools': [], 'extensions': [], 'remote_settings': {}}),
-                              ('register_extensions', None), ('apply_environment', None)]:
+                              ('register_extensions', None), ('apply_environment', None), ('sync_context', None)]:
             mock = patch('colab_ssh.' + target, return_value=value)
             mock.start()
             self.addCleanup(mock.stop)

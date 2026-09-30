@@ -15,7 +15,7 @@ import sys
 import warnings
 from uuid import uuid4
 from setup_ssh import configure, install
-from setup_environment import load_profile, register_extensions, apply as apply_environment
+from setup_environment import load_profile, register_extensions, apply as apply_environment, sync_context
 from ssh_proxy import command as proxy_command
 from credentials import DEFAULT_AUTH, read_auth, read_pat, save_pat_mapping
 from setup_gpu import remote_code as gpu_setup_code
@@ -178,6 +178,7 @@ def main(argv=None):
         if profile:
             print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
             apply_environment(ssh, profile)
+            sync_context(ssh)
         subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
         verify = "from pathlib import Path\n"
         if args.repo:
