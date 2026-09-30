@@ -29,6 +29,18 @@ class SSHConfigTests(unittest.TestCase):
             self.assertIn('ssh_proxy.py', text)
             self.assertIn('StrictHostKeyChecking accept-new', text)
 
+    def test_reused_session_name_resets_its_host_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            key = root / 'identity'
+            key.touch()
+            with patch.object(setup_ssh, 'CONFIG_HOME', root):
+                setup_ssh.configure('custom', '/bin/colab', key)
+                hosts = root / 'ssh/custom.known_hosts'
+                hosts.write_text('old-vm-key')
+                setup_ssh.configure('custom', '/bin/colab', key)
+            self.assertEqual(hosts.read_text(), '')
+
     def test_install_preserves_existing_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

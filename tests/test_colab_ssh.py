@@ -59,6 +59,8 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(app.main(['https://github.com/a/b', '--session', 'test']), 0)
         self.assertEqual(run.call_args_list[0].args[0][1], 'new')
         self.assertEqual(run.call_args_list[1].args[0][0], 'ssh')
+        self.assertTrue(any(str(option).startswith('UserKnownHostsFile=')
+                            for option in run.call_args_list[1].args[0]))
         self.assertEqual(run.call_args_list[2].args[0][1], 'drivemount')
         self.assertEqual(run.call_args_list[3].args[0][0], 'ssh')
         self.assertEqual(run.call_args_list[2].args[0][-1], '/content/b/drive')

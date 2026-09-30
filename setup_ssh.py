@@ -28,7 +28,10 @@ def configure(session, cli, identity=None, gpu=None):
     folder.mkdir(parents=True, exist_ok=True)
     alias = alias_for(session)
     hosts = folder / f'{session}.known_hosts'
-    hosts.touch(exist_ok=True)
+    # A custom session name may be reused for a different Colab VM. Its host
+    # key is therefore valid only for the current configure/create operation.
+    hosts.write_text('')
+    hosts.chmod(0o600)
     proxy = shlex.join(proxy_command(cli, session, key, gpu))
     entry = (f'Host {alias}\n'
              f'    HostName {session}\n'

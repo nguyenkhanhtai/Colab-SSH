@@ -39,8 +39,11 @@ colab-ssh --serve
 ```
 
 Mở `http://127.0.0.1:6767` để tạo, theo dõi, mở notebook và dừng nhiều session.
-Form chính chỉ chọn compute session. Khi tạo, dashboard hỏi riêng có cần khởi tạo
-workspace từ GitHub hay không; nếu có mới hiện repository, branch và credentials.
+Form tạo session có tùy chọn mount Google Drive, mặc định tắt. Khi bật,
+dashboard chờ Colab phát sinh authorization URL rồi hiển thị link Google. Sau khi
+cấp quyền, quay lại bấm **I’ve granted access**; server gửi xác nhận vào đúng
+provisioning process và tự tiếp tục setup. GitHub cũng là tùy chọn riêng; nếu bật
+mới hiện repository, branch và credentials.
 Có thể dùng PAT mapping đã lưu hoặc nhập PAT mới. PAT mới chỉ đi qua stdin của
 process tạo session, không xuất hiện trong command line, log hay API response, và
 được lưu vào mapping tương ứng sau khi clone thành công.
