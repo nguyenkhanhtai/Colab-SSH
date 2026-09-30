@@ -42,6 +42,16 @@ class SessionTests(unittest.TestCase):
             with self.assertRaises(argparse.ArgumentTypeError):
                 app.github_url(value)
 
+    def test_finds_colab_inside_uv_tool_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tool_python = Path(tmp) / 'bin/python'
+            bundled_cli = tool_python.parent / 'colab'
+            bundled_cli.parent.mkdir()
+            bundled_cli.touch()
+            with patch('colab_ssh.shutil.which', return_value=None), \
+                    patch('colab_ssh.sys.executable', str(tool_python)):
+                self.assertEqual(app.find_colab_cli(), str(bundled_cli))
+
     @patch('colab_ssh.shutil.which', return_value='/bin/colab')
     @patch('colab_ssh.subprocess.run')
     def test_sequence_and_failure(self, run, which):
@@ -104,6 +114,9 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(json.loads(clone.kwargs['input']), 'test-secret')
         self.assertNotIn('test-secret', str(clone.args))
         self.assertNotIn('test-secret', output.getvalue())
+        self.assertEqual(app.read_auth(app.DEFAULT_AUTH, 'https://github.com/a/b'), 'test-secret')
+        self.assertIn('Saved PAT mapping:', output.getvalue())
+        self.assertNotIn('test-secret', app.DEFAULT_AUTH.read_text())
         self.assertIn('credential.helper=', clone.args[0][-1])
 
     @patch('colab_ssh.shutil.which', return_value='/bin/colab')

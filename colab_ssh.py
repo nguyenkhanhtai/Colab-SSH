@@ -17,7 +17,7 @@ from uuid import uuid4
 from setup_ssh import configure, install
 from setup_environment import load_profile, register_extensions, apply as apply_environment
 from ssh_proxy import command as proxy_command
-from credentials import DEFAULT_AUTH, read_auth, read_pat
+from credentials import DEFAULT_AUTH, read_auth, read_pat, save_pat_mapping
 from setup_gpu import remote_code as gpu_setup_code
 
 
@@ -76,6 +76,15 @@ mount.mkdir()
 '''
 
 
+def find_colab_cli():
+    cli = shutil.which("colab")
+    if cli:
+        return cli
+    # uv tool keeps dependency executables beside its Python, outside caller PATH.
+    bundled = Path(sys.executable).parent / "colab"
+    return str(bundled) if bundled.is_file() else None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repo", nargs="?", type=github_url, help="Optional GitHub HTTPS repository URL")
@@ -99,7 +108,7 @@ def main(argv=None):
     session = args.session or ("colab-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:6])
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session):
         parser.error("Invalid session name: use letters, numbers, hyphens and underscores")
-    cli = shutil.which("colab")
+    cli = find_colab_cli()
     if cli is None:
         parser.error("Colab CLI missing. Install with: uv tool install -e .")
     token = os.environ.get("GH_TOKEN", "") if args.repo else ""
@@ -157,6 +166,14 @@ def main(argv=None):
         code = gpu_check + workspace_code
         subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
                        input=json.dumps(token) if token else "", text=True, check=True)
+        if args.pat:
+            try:
+                save_pat_mapping(url, token, DEFAULT_AUTH)
+            except (ValueError, OSError) as exc:
+                print(f'Warning: clone succeeded but PAT mapping could not be saved: {exc}',
+                      file=sys.stderr)
+            else:
+                print(f'Saved PAT mapping: {DEFAULT_AUTH}', flush=True)
         token = None
         if profile:
             print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)

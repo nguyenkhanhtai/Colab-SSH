@@ -96,6 +96,10 @@ colab-ssh https://github.com/OWNER/PRIVATE_REPO --pat
 Nếu biến môi trường `GH_TOKEN` đã có sẵn, tool tự dùng token đó; `--pat` ưu tiên
 token nhập trực tiếp. Token rỗng khi nhập sẽ dừng trước khi tạo VM.
 Dùng PAT có quyền đọc repo đích. Không đặt token vào URL hoặc đối số dòng lệnh.
+Sau khi clone thành công bằng `--pat`, tool tự lưu token vào file riêng trong
+`~/.config/colab-ssh/` và cập nhật mapping của repo trong `auth.json`. Lần chạy
+sau với cùng repo sẽ tự dùng PAT đã lưu. Clone thất bại không lưu token;
+`--pat-file` và `GH_TOKEN` không tự thay đổi mapping.
 
 ### Đọc PAT từ file
 

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from credentials import read_auth, read_pat
+from credentials import read_auth, read_pat, save_pat_mapping
 
 
 class CredentialTests(unittest.TestCase):
@@ -30,6 +30,21 @@ class CredentialTests(unittest.TestCase):
             self.assertEqual(read_auth(config, 'https://github.com/OWNER/BETA.git'), 'beta-secret')
             self.assertEqual(read_auth(config, 'https://github.com/owner/other'), '')
             self.assertEqual(read_auth(config), '')
+
+    def test_saved_pat_mapping_is_private_and_reusable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'auth.json'
+            first = save_pat_mapping('https://github.com/Owner/Alpha.git', 'alpha-secret', config)
+            second = save_pat_mapping('https://github.com/owner/beta', 'beta-secret', config)
+            self.assertEqual(read_auth(config, 'https://github.com/owner/alpha'), 'alpha-secret')
+            self.assertEqual(read_auth(config, 'https://github.com/OWNER/BETA.git'), 'beta-secret')
+            self.assertEqual(first.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(second.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+            mapping = json.loads(config.read_text())['github_repositories']
+            self.assertEqual(len(mapping), 2)
+            self.assertNotIn('alpha-secret', config.read_text())
+            self.assertNotIn('beta-secret', config.read_text())
 
     def test_bad_files_fail_without_echoing_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
