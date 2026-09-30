@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "colab-session"
 version = "0.1.0"
@@ -9,5 +13,18 @@ dependencies = [
     "jupyter-kernel-client==0.9.0",
 ]
 
+[project.scripts]
+colab-ssh = "colab_ssh:main"
+
+[tool.setuptools]
+py-modules = [
+    "colab_ssh",
+    "credentials",
+    "setup_environment",
+    "setup_gpu",
+    "setup_ssh",
+    "ssh_proxy",
+]
+
 [tool.uv]
-package = false
+package = true

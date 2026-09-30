@@ -12,7 +12,7 @@ class SSHConfigTests(unittest.TestCase):
             root = Path(tmp)
             key = root / 'identity'
             key.touch()
-            with patch.object(setup_ssh, 'ROOT', root):
+            with patch.object(setup_ssh, 'CONFIG_HOME', root):
                 config, _ = setup_ssh.configure('colab-first', '/path with spaces/colab', key)
                 setup_ssh.configure('colab-second', '/path with spaces/colab', key)
             text = config.read_text()

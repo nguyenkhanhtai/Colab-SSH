@@ -101,7 +101,7 @@ def main(argv=None):
         parser.error("Invalid session name: use letters, numbers, hyphens and underscores")
     cli = shutil.which("colab")
     if cli is None:
-        parser.error("Colab CLI missing. Run: uv run colab_ssh.py [github-url]")
+        parser.error("Colab CLI missing. Install with: uv tool install -e .")
     token = os.environ.get("GH_TOKEN", "") if args.repo else ""
     try:
         if args.pat_file:

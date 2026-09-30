@@ -7,7 +7,7 @@ import shlex
 import shutil
 from ssh_proxy import command as proxy_command
 
-ROOT = Path(__file__).resolve().parent
+CONFIG_HOME = Path.home() / '.config/colab-ssh'
 
 
 def configure(session, cli, identity=None, gpu=None):
@@ -16,8 +16,8 @@ def configure(session, cli, identity=None, gpu=None):
     key = Path(identity).expanduser().resolve() if identity else Path.home() / '.ssh/id_ed25519'
     if not key.is_file():
         raise FileNotFoundError(f'SSH key missing: {key}. Create one with ssh-keygen -t ed25519')
-    folder = ROOT / '.ssh'
-    folder.mkdir(exist_ok=True)
+    folder = CONFIG_HOME / 'ssh'
+    folder.mkdir(parents=True, exist_ok=True)
     alias = 'colab-session'
     hosts = folder / f'{session}.known_hosts'
     hosts.touch(exist_ok=True)

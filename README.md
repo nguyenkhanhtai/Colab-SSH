@@ -4,14 +4,14 @@ Một script độc lập: tạo session Colab → tùy chọn clone GitHub → 
 Chạy từ máy local, trong thư mục project, với `uv` và Python 3.12 trở lên:
 
 ```bash
-uv sync
-uv run colab_ssh.py
-uv run colab_ssh.py https://github.com/OWNER/REPO
-uv run colab_ssh.py https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
+uv tool install -e .
+colab-ssh
+colab-ssh https://github.com/OWNER/REPO
+colab-ssh https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
 ```
 
 Dependencies được khai báo trong `pyproject.toml` và khóa phiên bản trong `uv.lock`.
-`uv sync` cài `google-colab-cli` và `jupyter-kernel-client` vào `.venv` của project.
+`uv tool install -e .` cài `google-colab-cli` và `jupyter-kernel-client` vào `.venv` của project.
 Kết nối SSH cần OpenSSH trên máy local; VS Code cần extension Remote-SSH nếu sử dụng.
 Đăng nhập Google theo hướng dẫn
 của CLI; bước mount Drive có thể yêu cầu xác nhận trong trình duyệt.
@@ -23,7 +23,7 @@ cần tài khoản Colab đủ điều kiện sử dụng CLI và runtime đã c
 Mỗi session mới tự cài Codex CLI và Antigravity CLI bằng installer chính thức,
 áp dụng settings editor/file phù hợp với remote và đăng ký extensions tự cài khi
 VS Code kết nối. Profile lấy từ VS Code local lần đầu và lưu tại
-`.local/environment.json` (không đưa vào Git). Theme và phím tắt tiếp tục dùng
+`~/.config/colab-ssh/environment.json` (không đưa vào Git). Theme và phím tắt tiếp tục dùng
 trực tiếp từ VS Code local. Profile không chứa token hay lịch sử đăng nhập.
 
 Installer: [Codex](https://developers.openai.com/codex/cli/) và
@@ -44,7 +44,7 @@ uv run setup_environment.py --session SESSION
 Sau khi kết nối, đăng nhập lần đầu bằng `codex login --device-auth` và `agy`.
 Để tạo session chỉ clone/mount Drive, thêm `--skip-environment`.
 Tool hiện lấy settings từ VS Code Stable mặc định trên Linux; có thể chỉnh
-`.local/environment.json` để chọn tools, extensions và remote settings.
+`~/.config/colab-ssh/environment.json` để chọn tools, extensions và remote settings.
 
 Nếu truyền GitHub URL, code nằm tại `/content/REPO` và Drive nằm tại `/content/REPO/drive/MyDrive`.
 Nếu không truyền URL, workspace là `/content` và Drive nằm tại `/content/drive/MyDrive`.
@@ -69,7 +69,7 @@ Lệnh tự đăng ký host vào SSH config. Có thể chạy ngay sau khi VM đ
 kể cả khi bước mount Drive chưa hoàn tất. Với key khác, thêm
 `--identity /path/to/private_key`. Host `colab-session` trỏ tới VM vừa setup, thay thế VM trước trong danh sách SSH.
 Mỗi session có file host key riêng để tránh
-nhầm với VM trước. `.ssh/` của tool được loại khỏi Git. Thêm `--no-install` nếu
+nhầm với VM trước. `~/.config/colab-ssh/ssh/` của tool được loại khỏi Git. Thêm `--no-install` nếu
 chỉ muốn tạo config riêng mà chưa đăng ký vào `~/.ssh/config`.
 
 Tool kiểm tra GPU thực tế bằng `nvidia-smi` trước khi clone.
@@ -90,7 +90,7 @@ Repo public dùng ngay. Với repo private, thêm `--pat` để nhập GitHub Pe
 Token trong terminal (ký tự được ẩn):
 
 ```bash
-uv run colab_ssh.py https://github.com/OWNER/PRIVATE_REPO --pat
+colab-ssh https://github.com/OWNER/PRIVATE_REPO --pat
 ```
 
 Nếu biến môi trường `GH_TOKEN` đã có sẵn, tool tự dùng token đó; `--pat` ưu tiên
@@ -99,13 +99,13 @@ Dùng PAT có quyền đọc repo đích. Không đặt token vào URL hoặc đ
 
 ### Đọc PAT từ file
 
-Lưu PAT trong `.local/github.pat`, chỉ một token trên một dòng, rồi chạy:
+Lưu PAT trong `~/.config/colab-ssh/github.pat`, chỉ một token trên một dòng, rồi chạy:
 
 ```bash
-uv run colab_ssh.py https://github.com/OWNER/PRIVATE_REPO --pat-file .local/github.pat
+colab-ssh https://github.com/OWNER/PRIVATE_REPO --pat-file ~/.config/colab-ssh/github.pat
 ```
 
-Để tự chọn PAT tương ứng với từng project, tạo `.local/auth.json` theo mẫu:
+Để tự chọn PAT tương ứng với từng project, tạo `~/.config/colab-ssh/auth.json` theo mẫu:
 
 ```json
 {
@@ -116,7 +116,7 @@ uv run colab_ssh.py https://github.com/OWNER/PRIVATE_REPO --pat-file .local/gith
 }
 ```
 
-Có thể copy `auth.example.json` vào `.local/auth.json`. Đường dẫn PAT tương đối
+Có thể copy `auth.example.json` vào `~/.config/colab-ssh/auth.json`. Đường dẫn PAT tương đối
 được tính từ thư mục chứa config; hỗ trợ đường dẫn tuyệt đối và `~`.
 URL được so khớp không phân biệt chữ hoa/thường và chấp nhận cả dạng có `.git`.
 Project không có trong mapping sẽ không đọc PAT của project khác.
@@ -135,11 +135,11 @@ Khi dùng `--auth-file` rõ ràng mà project không khớp, tool báo lỗi tr�
 
 Sau đó chạy tool bình thường, không cần `--pat`. `--auth-file /path/auth.json`
 chọn config khác. `--pat`, `--pat-file`, `--auth-file` chỉ dùng một tùy chọn mỗi lần.
-Tùy chọn nhập/file chỉ định trực tiếp được ưu tiên; sau đó tới `.local/auth.json`,
+Tùy chọn nhập/file chỉ định trực tiếp được ưu tiên; sau đó tới `~/.config/colab-ssh/auth.json`,
 rồi `GH_TOKEN`. File thiếu, rỗng hoặc sai định dạng sẽ dừng trước khi tạo VM.
 
-`.local/`, `*.pat` và `auth.json` được loại khỏi Git. Giới hạn quyền đọc bằng
-`chmod 600 .local/github.pat .local/auth.json`. Token được đọc ở local, truyền qua
+`~/.config/colab-ssh/`, `*.pat` và `auth.json` được loại khỏi Git. Giới hạn quyền đọc bằng
+`chmod 600 ~/.config/colab-ssh/*.pat ~/.config/colab-ssh/auth.json`. Token được đọc ở local, truyền qua
 stdin SSH và không in ra log. Chỉ GitHub PAT được cấu hình từ file này.
 
 Clone bằng PAT cần OpenSSH và SSH key local đã được Colab CLI hỗ trợ (ví dụ

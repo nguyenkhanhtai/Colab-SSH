@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import re
 
-DEFAULT_AUTH = Path(__file__).resolve().parent / '.local/auth.json'
+DEFAULT_AUTH = Path.home() / '.config/colab-ssh/auth.json'
 
 
 def read_pat(path):

@@ -6,8 +6,7 @@ import re
 import shlex
 import subprocess
 
-ROOT = Path(__file__).resolve().parent
-PROFILE = ROOT / '.local/environment.json'
+PROFILE = Path.home() / '.config/colab-ssh/environment.json'
 
 
 def read_jsonc(text):
@@ -42,7 +41,7 @@ def capture():
             extensions.append(e)
     profile = {'tools': ['codex', 'antigravity'], 'extensions': extensions,
                'remote_settings': remote}
-    PROFILE.parent.mkdir(exist_ok=True)
+    PROFILE.parent.mkdir(parents=True, exist_ok=True)
     PROFILE.write_text(json.dumps(profile, indent=2, ensure_ascii=False) + '\n')
     return profile
 
