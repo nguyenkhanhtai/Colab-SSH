@@ -25,6 +25,18 @@ class SessionManagerTests(unittest.TestCase):
         self.assertNotIn('token', rows[0])
         self.assertNotIn('endpoint', rows[0])
 
+    def test_reconcile_keeps_session_during_colab_automation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / 'sessions.json'
+            state.write_text(json.dumps({
+                'mounting': {'running': 'automation(drivemount)'},
+                'finished': {'running': False},
+            }))
+            with patch('session_manager.live_names', return_value=set()), \
+                    patch('session_manager.reconcile_ssh') as reconcile:
+                session_manager.reconcile(state, cli='/bin/colab')
+        reconcile.assert_called_once_with({'mounting'})
+
     def test_stop_always_removes_ssh_state(self):
         with patch('session_manager.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'colab')), \
                 patch('session_manager.remove_ssh') as remove:

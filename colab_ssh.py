@@ -92,6 +92,7 @@ def main(argv=None):
     parser.add_argument("--session", help="Name for a NEW session")
     parser.add_argument("--branch", help="Branch or tag to clone")
     parser.add_argument("--drive-dir", default="drive", help="Mount directory inside the workspace")
+    parser.add_argument("--skip-drive", action="store_true", help="Do not mount Google Drive")
     auth = parser.add_mutually_exclusive_group()
     auth.add_argument("--pat", action="store_true", help="Prompt for a GitHub PAT (hidden input)")
     auth.add_argument("--pat-stdin", action="store_true", help=argparse.SUPPRESS)
@@ -214,17 +215,21 @@ def main(argv=None):
             print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
             apply_environment(ssh, profile)
             sync_context(ssh)
-        subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
+        if not args.skip_drive:
+            subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
         verify = "from pathlib import Path\n"
         if args.repo:
             verify += f"assert Path({(remote + '/.git')!r}).is_dir(), 'Repository clone missing'\n"
-        verify += f"assert Path({(remote + '/' + args.drive_dir + '/MyDrive')!r}).is_dir(), 'Drive mount failed'\n"
+        if not args.skip_drive:
+            verify += f"assert Path({(remote + '/' + args.drive_dir + '/MyDrive')!r}).is_dir(), 'Drive mount failed'\n"
         subprocess.run([*ssh, "python3 -c " + shlex.quote(verify)], check=True)
     except (subprocess.CalledProcessError, KeyboardInterrupt):
         print(f"Setup interrupted or failed. Session {session} may still be active.\n"
               f"Inspect: {shlex.join([cli, 'status', '-s', session])}\nStop: {stop}", file=sys.stderr)
         return 1
-    print(f"READY: {remote}\nDrive: {remote}/{args.drive_dir}/MyDrive")
+    print(f"READY: {remote}")
+    if not args.skip_drive:
+        print(f"Drive: {remote}/{args.drive_dir}/MyDrive")
     print("Connect: " + shlex.join(ssh))
     print("Browser: " + shlex.join([cli, "url", "-s", session]))
     print(f"Stop: {stop}")

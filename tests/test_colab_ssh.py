@@ -82,6 +82,15 @@ class SessionTests(unittest.TestCase):
         self.assertNotIn('git', run.call_args_list[1].args[0][-1])
 
     @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
+    def test_skip_drive_does_not_run_drivemount(self, run, which):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(['--session', 'scratch', '--skip-drive']), 0)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertFalse(any(len(command) > 1 and command[1] == 'drivemount' for command in commands))
+        self.assertNotIn('MyDrive', commands[-1][-1])
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
     def test_branch_requires_repository(self, which):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):

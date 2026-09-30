@@ -38,14 +38,20 @@ def live_names(cli):
 
 
 def reconcile(path=None, cli=None):
-    active = live_names(cli) if cli else active_names(path)
+    # `colab sessions` can temporarily omit a runtime while an automation such
+    # as drivemount owns it. Preserve state-marked runtimes during provisioning.
+    active = active_names(path)
+    if cli:
+        active |= live_names(cli)
     return reconcile_ssh(active)
 
 
 def sessions(path=None, cli=None):
     state = read_state(path)
-    active = live_names(cli) if cli else {name for name, value in state.items()
-                                         if isinstance(value, dict) and value.get('running', True)}
+    active = {name for name, value in state.items()
+              if isinstance(value, dict) and value.get('running', True)}
+    if cli:
+        active |= live_names(cli)
     reconcile_ssh(active)
     result = []
     for name, value in sorted(state.items()):
