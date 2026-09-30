@@ -15,7 +15,7 @@ class SSHConfigTests(unittest.TestCase):
             with patch.object(setup_ssh, 'CONFIG_HOME', root):
                 first, first_alias = setup_ssh.configure('colab-first', '/path with spaces/colab', key)
                 second, second_alias = setup_ssh.configure('colab-second', '/path with spaces/colab', key)
-                removed = setup_ssh.reconcile({'colab-second'})
+                removed = setup_ssh.reconcile({'colab-second'}, grace_seconds=0)
             self.assertNotEqual(first, second)
             self.assertEqual(first_alias, 'colab-first')
             self.assertEqual(second_alias, 'colab-second')
@@ -28,6 +28,17 @@ class SSHConfigTests(unittest.TestCase):
             self.assertIn("--cli '/path with spaces/colab'", text)
             self.assertIn('ssh_proxy.py', text)
             self.assertIn('StrictHostKeyChecking accept-new', text)
+
+    def test_reconcile_preserves_new_config_during_provisioning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            key = root / 'identity'
+            key.touch()
+            with patch.object(setup_ssh, 'CONFIG_HOME', root):
+                config, _ = setup_ssh.configure('starting', '/bin/colab', key)
+                removed = setup_ssh.reconcile(set(), grace_seconds=300)
+            self.assertTrue(config.exists())
+            self.assertEqual(removed, [])
 
     def test_reused_session_name_resets_its_host_key(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import time
 from ssh_proxy import command as proxy_command
 
 CONFIG_HOME = Path.home() / '.config/colab-ssh'
@@ -79,13 +80,15 @@ def remove(session):
     return removed
 
 
-def reconcile(active_sessions):
-    """Remove SSH state whose session is no longer active."""
+def reconcile(active_sessions, grace_seconds=300):
+    """Remove stale SSH state, preserving newly provisioned session configs."""
     folder = CONFIG_HOME / 'ssh'
     if not folder.exists():
         return []
     active = set(active_sessions)
-    stale = {path.stem for path in folder.glob('*.conf') if path.stem not in active}
+    now = time.time()
+    stale = {path.stem for path in folder.glob('*.conf')
+             if path.stem not in active and now - path.stat().st_mtime >= grace_seconds}
     removed = []
     for session in stale:
         removed.extend(remove(session))

@@ -202,8 +202,10 @@ def main(argv=None):
         workspace_code = (clone_code(url, remote, args.branch, args.drive_dir, authenticated=bool(token))
                           if args.repo else prepare_workspace_code(remote, args.drive_dir))
         code = gpu_check + workspace_code
+        print('Configuring workspace and GPU...', flush=True)
         subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
                        input=json.dumps(token) if token else "", text=True, check=True)
+        print('Workspace and GPU ready.', flush=True)
         if args.pat or args.pat_stdin:
             try:
                 save_pat_mapping(url, token, DEFAULT_AUTH)
@@ -216,9 +218,14 @@ def main(argv=None):
         if profile:
             print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
             apply_environment(ssh, profile)
+            print('Development tools ready. Syncing agent context...', flush=True)
             sync_context(ssh)
+            print('Agent context synced.', flush=True)
         if not args.skip_drive:
+            print('Mounting Google Drive...', flush=True)
             subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
+            print('Google Drive mounted.', flush=True)
+        print('Verifying session...', flush=True)
         verify = "from pathlib import Path\n"
         if args.repo:
             verify += f"assert Path({(remote + '/.git')!r}).is_dir(), 'Repository clone missing'\n"

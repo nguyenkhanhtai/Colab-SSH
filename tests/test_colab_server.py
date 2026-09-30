@@ -29,6 +29,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('id="activeCount"', colab_server.HTML)
         self.assertIn('id="driveDialog"', colab_server.HTML)
         self.assertIn('I’ve granted access', colab_server.HTML)
+        self.assertIn('class=\"progress\"', colab_server.HTML)
+        self.assertIn('${E(s.stage)}', colab_server.HTML)
         self.assertNotIn('<form id="compute"', colab_server.HTML)
 
 
@@ -47,6 +49,39 @@ class ServerAppTests(unittest.TestCase):
         self.assertIn('--branch', command)
         self.assertNotIn('web-secret', command)
         self.assertEqual(popen.return_value.stdin.getvalue(), b'web-secret\n')
+
+    def test_job_status_reports_provisioning_stage_and_progress(self):
+        process = FakeProcess()
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
+                patch('colab_server.subprocess.Popen', return_value=process):
+            app = colab_server.App('/bin/colab')
+            app.logs = Path(tmp)
+            app.create({'session': 'progress-job', 'gpu': 'L4'})
+            log = Path(tmp) / 'progress-job.log'
+            log.write_text('Session READY.\nSSH: command\nConfiguring workspace and GPU...\n')
+            status = app.job_status('progress-job')
+            self.assertEqual(status['status'], 'provisioning')
+            self.assertEqual(status['stage'], 'Configuring workspace and GPU')
+            self.assertEqual(status['progress'], 32)
+            log.write_text(log.read_text() + 'Environment ready.\nDevelopment tools ready. Syncing agent context...\n')
+            status = app.job_status('progress-job')
+            self.assertEqual(status['stage'], 'Syncing agent context')
+            self.assertEqual(status['progress'], 72)
+            log.write_text(log.read_text() + 'READY: /content\n')
+            process.returncode = 0
+            status = app.job_status('progress-job')
+            self.assertEqual(status['status'], 'ready')
+            self.assertEqual(status['progress'], 100)
+
+    def test_new_job_truncates_log_from_reused_name(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
+                patch('colab_server.subprocess.Popen', return_value=FakeProcess()):
+            app = colab_server.App('/bin/colab')
+            app.logs = Path(tmp)
+            log = Path(tmp) / 'same-name.log'
+            log.write_text('READY: stale run')
+            app.create({'session': 'same-name', 'gpu': 'T4'})
+            self.assertEqual(log.read_text(), '')
 
     def test_drive_authorization_can_resume_provisioning(self):
         process = FakeProcess()

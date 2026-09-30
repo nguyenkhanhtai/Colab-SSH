@@ -38,6 +38,10 @@ mới hiện repository, branch và credentials.
 Có thể dùng PAT mapping đã lưu hoặc nhập PAT mới. PAT mới chỉ đi qua stdin của
 process tạo session, không xuất hiện trong command line, log hay API response, và
 được lưu vào mapping tương ứng sau khi clone thành công.
+Mỗi card hiển thị trạng thái provisioning và progress bar theo các mốc: tạo
+runtime, cấu hình SSH/GPU, cài development tools, đồng bộ agent context, xác thực
+Drive và verification. Job xuất hiện ngay khi submit; lỗi setup chuyển sang
+`FAILED` thay vì tiếp tục hiển thị chung là `RUNNING`.
 Dashboard refresh mỗi 15 giây; server reconcile state mỗi 30 giây và tự xóa SSH
 state của runtime không còn trong `~/.config/colab-cli/sessions.json`. Log của
 các tác vụ tạo session nền nằm trong `~/.config/colab-ssh/logs/`.
