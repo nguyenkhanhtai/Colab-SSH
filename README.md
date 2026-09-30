@@ -26,10 +26,15 @@ session, kể cả khi Colab CLI báo lỗi. Để chạy control-plane local:
 
 ```bash
 colab-ssh --serve
-# hoặc: colab-ssh-server --host 127.0.0.1 --port 8765
+# hoặc: colab-ssh-server --host 127.0.0.1 --port 6767
 ```
 
-Mở `http://127.0.0.1:8765` để tạo, theo dõi, mở notebook và dừng nhiều session.
+Mở `http://127.0.0.1:6767` để tạo, theo dõi, mở notebook và dừng nhiều session.
+Form chính chỉ chọn compute session. Khi tạo, dashboard hỏi riêng có cần khởi tạo
+workspace từ GitHub hay không; nếu có mới hiện repository, branch và credentials.
+Có thể dùng PAT mapping đã lưu hoặc nhập PAT mới. PAT mới chỉ đi qua stdin của
+process tạo session, không xuất hiện trong command line, log hay API response, và
+được lưu vào mapping tương ứng sau khi clone thành công.
 Dashboard refresh mỗi 15 giây; server reconcile state mỗi 30 giây và tự xóa SSH
 state của runtime không còn trong `~/.config/colab-cli/sessions.json`. Log của
 các tác vụ tạo session nền nằm trong `~/.config/colab-ssh/logs/`.

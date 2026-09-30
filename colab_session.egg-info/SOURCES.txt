@@ -14,6 +14,7 @@ colab_session.egg-info/dependency_links.txt
 colab_session.egg-info/entry_points.txt
 colab_session.egg-info/requires.txt
 colab_session.egg-info/top_level.txt
+tests/test_colab_server.py
 tests/test_colab_ssh.py
 tests/test_credentials.py
 tests/test_environment.py

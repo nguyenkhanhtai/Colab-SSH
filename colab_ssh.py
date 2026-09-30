@@ -94,6 +94,7 @@ def main(argv=None):
     parser.add_argument("--drive-dir", default="drive", help="Mount directory inside the workspace")
     auth = parser.add_mutually_exclusive_group()
     auth.add_argument("--pat", action="store_true", help="Prompt for a GitHub PAT (hidden input)")
+    auth.add_argument("--pat-stdin", action="store_true", help=argparse.SUPPRESS)
     auth.add_argument("--pat-file", type=Path, help="Read a GitHub PAT from a local text file")
     auth.add_argument("--auth-file", type=Path, help="JSON config containing credential file paths")
     parser.add_argument("--skip-environment", action="store_true", help="Skip CLI installation and VS Code profile")
@@ -102,7 +103,7 @@ def main(argv=None):
     management.add_argument("--stop", metavar="SESSION", help="Stop a session and remove its SSH state")
     management.add_argument("--serve", action="store_true", help="Run the local multi-session dashboard")
     parser.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
-    parser.add_argument("--port", type=int, default=8765, help=argparse.SUPPRESS)
+    parser.add_argument("--port", type=int, default=6767, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.list or args.stop or args.serve:
         if args.repo:
@@ -130,7 +131,7 @@ def main(argv=None):
         return 0
     if args.branch and not args.repo:
         parser.error("--branch requires a GitHub repository URL")
-    if not args.repo and (args.pat or args.pat_file or args.auth_file):
+    if not args.repo and (args.pat or args.pat_stdin or args.pat_file or args.auth_file):
         parser.error("PAT options require a GitHub repository URL")
     if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", args.drive_dir):
         parser.error("--drive-dir must be a simple directory name, e.g. drive or data")
@@ -143,13 +144,17 @@ def main(argv=None):
         parser.error("Colab CLI missing. Install with: uv tool install -e .")
     token = os.environ.get("GH_TOKEN", "") if args.repo else ""
     try:
-        if args.pat_file:
+        if args.pat_stdin:
+            token = sys.stdin.readline().strip()
+            if not token:
+                parser.error("PAT from stdin cannot be empty")
+        elif args.pat_file:
             token = read_pat(args.pat_file)
         elif args.auth_file:
             token = read_auth(args.auth_file, repo_url=url)
             if not token:
                 parser.error('Auth config has no PAT for this repository')
-        elif args.repo and not args.pat and DEFAULT_AUTH.is_file():
+        elif args.repo and not args.pat and not args.pat_stdin and DEFAULT_AUTH.is_file():
             token = read_auth(DEFAULT_AUTH, repo_url=url) or token
     except ValueError as exc:
         parser.error(str(exc))
@@ -196,7 +201,7 @@ def main(argv=None):
         code = gpu_check + workspace_code
         subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
                        input=json.dumps(token) if token else "", text=True, check=True)
-        if args.pat:
+        if args.pat or args.pat_stdin:
             try:
                 save_pat_mapping(url, token, DEFAULT_AUTH)
             except (ValueError, OSError) as exc:

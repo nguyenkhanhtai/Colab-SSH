@@ -183,6 +183,17 @@ class SessionTests(unittest.TestCase):
 
 
     @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
+    def test_pat_stdin_is_saved_without_exposure(self, run, which):
+        with patch('colab_ssh.sys.stdin', io.StringIO('web-secret\n')), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(app.main(['https://github.com/a/b', '--pat-stdin']), 0)
+        self.assertEqual(json.loads(run.call_args_list[1].kwargs['input']), 'web-secret')
+        self.assertNotIn('web-secret', str(run.call_args_list[1].args))
+        self.assertNotIn('web-secret', output.getvalue())
+        self.assertEqual(app.read_auth(app.DEFAULT_AUTH, 'https://github.com/a/b'), 'web-secret')
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
     def test_list_sessions(self, which):
         rows = [{'name': 'alpha', 'gpu': 'L4', 'ssh_command': 'ssh colab-alpha'}]
         with patch('session_manager.sessions', return_value=rows) as sessions, \
