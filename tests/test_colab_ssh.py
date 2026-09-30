@@ -182,5 +182,21 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(helpers[0].exists())
 
 
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    def test_list_sessions(self, which):
+        rows = [{'name': 'alpha', 'gpu': 'L4', 'ssh_command': 'ssh colab-alpha'}]
+        with patch('session_manager.sessions', return_value=rows) as sessions, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(app.main(['--list']), 0)
+        sessions.assert_called_once_with(cli='/bin/colab')
+        self.assertIn('alpha  L4  ssh colab-alpha', output.getvalue())
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    def test_stop_session(self, which):
+        with patch('session_manager.stop') as stop, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(['--stop', 'alpha']), 0)
+        stop.assert_called_once_with('/bin/colab', 'alpha')
+
+
 if __name__ == '__main__':
     unittest.main()

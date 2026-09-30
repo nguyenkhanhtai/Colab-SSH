@@ -1,0 +1,3 @@
+[console_scripts]
+colab-ssh = colab_ssh:main
+colab-ssh-server = colab_server:main

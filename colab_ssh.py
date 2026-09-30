@@ -97,7 +97,37 @@ def main(argv=None):
     auth.add_argument("--pat-file", type=Path, help="Read a GitHub PAT from a local text file")
     auth.add_argument("--auth-file", type=Path, help="JSON config containing credential file paths")
     parser.add_argument("--skip-environment", action="store_true", help="Skip CLI installation and VS Code profile")
+    management = parser.add_mutually_exclusive_group()
+    management.add_argument("--list", action="store_true", help="List active sessions")
+    management.add_argument("--stop", metavar="SESSION", help="Stop a session and remove its SSH state")
+    management.add_argument("--serve", action="store_true", help="Run the local multi-session dashboard")
+    parser.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
+    parser.add_argument("--port", type=int, default=8765, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.list or args.stop or args.serve:
+        if args.repo:
+            parser.error("A repository URL cannot be combined with management commands")
+        cli = find_colab_cli()
+        if cli is None:
+            parser.error("Colab CLI missing. Install with: uv tool install -e .")
+        if args.serve:
+            from colab_server import serve
+            serve(args.host, args.port)
+            return 0
+        import session_manager
+        if args.stop:
+            try:
+                session_manager.stop(cli, args.stop)
+            except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+                parser.error(str(exc))
+            print(f"Stopped {args.stop} and removed its SSH state")
+            return 0
+        rows = session_manager.sessions(cli=cli)
+        if not rows:
+            print("No active Colab sessions")
+        for item in rows:
+            print(f"{item['name']}  {item['gpu']}  {item['ssh_command']}")
+        return 0
     if args.branch and not args.repo:
         parser.error("--branch requires a GitHub repository URL")
     if not args.repo and (args.pat or args.pat_file or args.auth_file):

@@ -1,3 +1,12 @@
+Metadata-Version: 2.4
+Name: colab-session
+Version: 0.1.0
+Summary: Create a Colab session with optional GitHub repository and Google Drive
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: google-colab-cli==0.7.4
+Requires-Dist: jupyter-kernel-client==0.9.0
+
 # Colab Session
 
 Một script độc lập: tạo session Colab → tùy chọn clone GitHub → mount Google Drive.

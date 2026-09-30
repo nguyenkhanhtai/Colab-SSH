@@ -10,6 +10,14 @@ from ssh_proxy import command as proxy_command
 CONFIG_HOME = Path.home() / '.config/colab-ssh'
 
 
+def alias_for(session):
+    return session if session.startswith('colab-') else f'colab-{session}'
+
+
+def config_for(session):
+    return CONFIG_HOME / 'ssh' / f'{session}.conf'
+
+
 def configure(session, cli, identity=None, gpu=None):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', session):
         raise ValueError('Invalid session name')
@@ -18,7 +26,7 @@ def configure(session, cli, identity=None, gpu=None):
         raise FileNotFoundError(f'SSH key missing: {key}. Create one with ssh-keygen -t ed25519')
     folder = CONFIG_HOME / 'ssh'
     folder.mkdir(parents=True, exist_ok=True)
-    alias = 'colab-session'
+    alias = alias_for(session)
     hosts = folder / f'{session}.known_hosts'
     hosts.touch(exist_ok=True)
     proxy = shlex.join(proxy_command(cli, session, key, gpu))
@@ -32,8 +40,7 @@ def configure(session, cli, identity=None, gpu=None):
              '    StrictHostKeyChecking accept-new\n'
              '    ServerAliveInterval 30\n'
              '    ServerAliveCountMax 3\n')
-    config = folder / 'config'
-    # Generated config represents the current VM; host keys remain per session.
+    config = config_for(session)
     config.write_text(entry)
     config.chmod(0o600)
     return config, alias
@@ -42,11 +49,44 @@ def configure(session, cli, identity=None, gpu=None):
 def install(config):
     user_config = Path.home() / '.ssh/config'
     user_config.parent.mkdir(exist_ok=True)
-    line = f'Include "{config}"'
+    line = f'Include "{config.parent}/*.conf"'
+    legacy = f'Include "{config.parent}/config"'
     text = user_config.read_text() if user_config.exists() else ''
-    if line not in text.splitlines():
-        user_config.write_text(line + '\n\n' + text)
-        user_config.chmod(0o600)
+    lines = [item for item in text.splitlines() if item != legacy]
+    if line not in lines:
+        lines.insert(0, line)
+    user_config.write_text('\n'.join(lines).rstrip() + '\n')
+    user_config.chmod(0o600)
+    try:
+        (config.parent / 'config').unlink()
+    except FileNotFoundError:
+        pass
+
+
+def remove(session):
+    """Remove generated SSH state for one stopped session."""
+    removed = []
+    paths = [config_for(session), CONFIG_HOME / 'ssh' / f'{session}.known_hosts']
+    for path in paths:
+        try:
+            path.unlink()
+            removed.append(path)
+        except FileNotFoundError:
+            pass
+    return removed
+
+
+def reconcile(active_sessions):
+    """Remove SSH state whose session is no longer active."""
+    folder = CONFIG_HOME / 'ssh'
+    if not folder.exists():
+        return []
+    active = set(active_sessions)
+    stale = {path.stem for path in folder.glob('*.conf') if path.stem not in active}
+    removed = []
+    for session in stale:
+        removed.extend(remove(session))
+    return removed
 
 
 def main():

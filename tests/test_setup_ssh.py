@@ -7,18 +7,23 @@ import setup_ssh
 
 
 class SSHConfigTests(unittest.TestCase):
-    def test_latest_session_replaces_host(self):
+    def test_each_session_gets_its_own_host(self):
         with tempfile.TemporaryDirectory(prefix='ssh config ') as tmp:
             root = Path(tmp)
             key = root / 'identity'
             key.touch()
             with patch.object(setup_ssh, 'CONFIG_HOME', root):
-                config, _ = setup_ssh.configure('colab-first', '/path with spaces/colab', key)
-                setup_ssh.configure('colab-second', '/path with spaces/colab', key)
-            text = config.read_text()
-            self.assertEqual(text.count('Host colab-session\n'), 1)
+                first, first_alias = setup_ssh.configure('colab-first', '/path with spaces/colab', key)
+                second, second_alias = setup_ssh.configure('colab-second', '/path with spaces/colab', key)
+                removed = setup_ssh.reconcile({'colab-second'})
+            self.assertNotEqual(first, second)
+            self.assertEqual(first_alias, 'colab-first')
+            self.assertEqual(second_alias, 'colab-second')
+            self.assertFalse(first.exists())
+            self.assertTrue(second.exists())
+            self.assertIn(first, removed)
+            text = second.read_text()
             self.assertIn('HostName colab-second\n', text)
-            self.assertNotIn('colab-first', text)
             self.assertIn('colab-second.known_hosts', text)
             self.assertIn("--cli '/path with spaces/colab'", text)
             self.assertIn('ssh_proxy.py', text)
