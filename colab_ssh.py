@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a Colab session, clone a GitHub repository, and mount Drive inside it."""
+"""Create a Colab session, optionally clone GitHub, and mount Google Drive."""
 
 import argparse
 from datetime import datetime, timezone
@@ -65,85 +65,50 @@ os.chdir(repo)
 '''
 
 
+def prepare_workspace_code(remote, drive_dir):
+    return f'''from pathlib import Path
+workspace = Path({remote!r})
+workspace.mkdir(parents=True, exist_ok=True)
+mount = workspace / {drive_dir!r}
+if mount.exists() or mount.is_symlink():
+    raise RuntimeError(f"Drive path already exists: {{mount}}; choose another --drive-dir")
+mount.mkdir()
+'''
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("repo", type=github_url, help="GitHub HTTPS repository URL")
-    parser.add_argument("--gpu", default="T4", type=str.upper, choices=['T4', 'L4', 'G4', 'A100', 'H100'])
+    parser.add_argument("repo", nargs="?", type=github_url,
+                        help="Optional GitHub HTTPS repository URL")
+    parser.add_argument("--gpu", default="T4")
     parser.add_argument("--session", help="Name for a NEW session")
     parser.add_argument("--branch", help="Branch or tag to clone")
-    parser.add_argument("--drive-dir", default="drive", help="Mount directory inside the repo")
-    auth = parser.add_mutually_exclusive_group()
-    auth.add_argument("--pat", action="store_true", help="Prompt for a GitHub PAT (hidden input)")
-    auth.add_argument("--pat-file", type=Path, help="Read a GitHub PAT from a local text file")
-    auth.add_argument("--auth-file", type=Path, help="JSON config containing credential file paths")
-    parser.add_argument("--skip-environment", action="store_true", help="Skip CLI installation and VS Code profile")
+    parser.add_argument("--drive-dir", default="drive", help="Mount directory inside the workspace")
     args = parser.parse_args(argv)
+    if args.branch and not args.repo:
+        parser.error("--branch requires a GitHub repository URL")
     if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", args.drive_dir):
         parser.error("--drive-dir must be a simple directory name, e.g. drive or data")
-    url, name = args.repo
     session = args.session or ("colab-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:6])
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session):
         parser.error("Invalid session name: use letters, numbers, hyphens and underscores")
     cli = shutil.which("colab")
     if cli is None:
-        parser.error("Colab CLI missing. Run: uv run start_colab.py <github-url>")
-    token = os.environ.get("GH_TOKEN", "")
-    try:
-        if args.pat_file:
-            token = read_pat(args.pat_file)
-        elif args.auth_file:
-            token = read_auth(args.auth_file, repo_url=url)
-            if not token:
-                parser.error('Auth config has no PAT for this repository')
-        elif not args.pat and DEFAULT_AUTH.is_file():
-            token = read_auth(DEFAULT_AUTH, repo_url=url) or token
-    except ValueError as exc:
-        parser.error(str(exc))
-    if args.pat:
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("error", getpass.GetPassWarning)
-                token = getpass.getpass("GitHub PAT (hidden): ").strip()
-        except (getpass.GetPassWarning, EOFError):
-            parser.error("Hidden input requires a terminal. For automation, set GH_TOKEN.")
-        except KeyboardInterrupt:
-            return 1
-        if not token:
-            parser.error("PAT cannot be empty")
-    if not shutil.which("ssh"):
-        parser.error("OpenSSH is required to prepare and verify the VM")
-    remote = f"/content/{name}"
-    profile = None
-    if not args.skip_environment:
-        profile = load_profile()
-        register_extensions(profile)
+        parser.error("Colab CLI missing. Run: uv run colab_ssh.py [github-url]")
+    if args.repo:
+        url, name = args.repo
+        remote = f"/content/{name}"
+        setup_code = clone_code(url, remote, args.branch, args.drive_dir)
+    else:
+        remote = "/content"
+        setup_code = prepare_workspace_code(remote, args.drive_dir)
     stop = shlex.join([cli, "stop", "-s", session])
     print(f"Creating {session} ({args.gpu})", flush=True)
     try:
         subprocess.run([cli, "new", "-s", session, "--gpu", args.gpu], check=True)
         print(f"Session: {session}\nStop when finished: {stop}", flush=True)
-        try:
-            config, alias = configure(session, cli, gpu=args.gpu)
-            install(config)
-            print('SSH: ' + shlex.join(['ssh', '-F', str(config), alias]), flush=True)
-            print(f'VS Code: Remote-SSH: Connect to Host → {alias}', flush=True)
-        except OSError as exc:
-            print(f'SSH setup could not complete: {exc}\n'
-                  f'Retry: uv run setup_ssh.py --session {session}', file=sys.stderr)
-        # SSH propagates remote failures; colab exec may exit 0 after a Python error.
-        # Secrets travel over stdin rather than recorded notebook code.
-        proxy = shlex.join(proxy_command(cli, session, gpu=args.gpu))
-        ssh = ["ssh", "-o", f"ProxyCommand={proxy}",
-               "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
-               "-o", "ConnectTimeout=30", f"root@{session}"]
-        gpu_check = gpu_setup_code(args.gpu)
-        code = gpu_check + clone_code(url, remote, args.branch, args.drive_dir, authenticated=bool(token))
-        subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
-                       input=json.dumps(token) if token else "", text=True, check=True)
-        token = None
-        if profile:
-            print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
-            apply_environment(ssh, profile)
+        subprocess.run([cli, "exec", "-s", session, "--timeout", "600"],
+                       input=setup_code, text=True, check=True)
         subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
         verify = (
             f"from pathlib import Path\n"

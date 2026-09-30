@@ -1,12 +1,13 @@
 # Colab Session
 
-Một script độc lập: tạo session Colab → clone GitHub → mount Google Drive trong repo.
+Một script độc lập: tạo session Colab → tùy chọn clone GitHub → mount Google Drive.
 Chạy từ máy local, trong thư mục project, với `uv` và Python 3.12 trở lên:
 
 ```bash
 uv sync
-uv run start_colab.py https://github.com/OWNER/REPO
-uv run start_colab.py https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
+uv run colab_ssh.py
+uv run colab_ssh.py https://github.com/OWNER/REPO
+uv run colab_ssh.py https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
 ```
 
 Dependencies được khai báo trong `pyproject.toml` và khóa phiên bản trong `uv.lock`.
@@ -47,8 +48,8 @@ Tool hiện lấy settings từ VS Code Stable mặc định trên Linux; có th
 
 Code nằm tại `/content/REPO`; Drive nằm tại `/content/REPO/drive/MyDrive`.
 `--drive-dir` đổi tên điểm mount, không chọn thư mục con của Drive.
-Nếu tên này đã tồn tại trong repo, script dừng để tránh che hoặc ghi đè dữ liệu.
-Điểm mount được loại khỏi Git bằng `.git/info/exclude` chỉ trên VM.
+Nếu tên này đã tồn tại trong workspace, script dừng để tránh che hoặc ghi đè dữ liệu.
+Khi dùng GitHub, điểm mount được loại khỏi Git bằng `.git/info/exclude` chỉ trên VM.
 
 Mỗi lần chạy tạo session mới. `--session NAME` đặt tên cho session mới, không resume.
 Script in lệnh SSH, lấy URL trình duyệt và dừng session. Nếu có SSH key
@@ -142,6 +143,11 @@ URL remote, cấu hình Git hay lịch sử code của Colab CLI. Helper tạm �
 lần clone kể cả khi Git báo lỗi. Token chỉ dùng để clone; các lần pull/push sau
 trong session cần xác thực riêng.
 
+<<<<<<< HEAD
+=======
+GitHub hoàn toàn không bắt buộc. Repo public dùng ngay. Repo private cần thông tin xác thực Git được chuẩn bị trên VM;
+script hiện không chuyển token/SSH key từ local, không nhận token trong URL.
+>>>>>>> a185e29 (Remove forced repository option in colab-ssh)
 Dependencies và các lệnh chạy của repo đích do bạn chuẩn bị sau khi kết nối.
 Code ở ổ tạm: commit/push để lưu thay đổi. Chỉ dữ liệu ghi vào Drive
 mới tồn tại trên Drive sau khi dừng VM. Nếu setup lỗi, session được giữ lại để kiểm tra;

@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import start_colab as app
+import colab_ssh as app
 
 
 class SessionTests(unittest.TestCase):
@@ -42,8 +42,8 @@ class SessionTests(unittest.TestCase):
             with self.assertRaises(argparse.ArgumentTypeError):
                 app.github_url(value)
 
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_sequence_and_failure(self, run, which):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(['https://github.com/a/b', '--session', 'test']), 0)
@@ -58,6 +58,22 @@ class SessionTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(app.main(['https://github.com/a/b']), 1)
         self.assertEqual(run.call_count, 2)
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
+    def test_session_without_repository(self, run, which):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(['--session', 'scratch']), 0)
+        self.assertEqual([c.args[0][1] for c in run.call_args_list],
+                         ['new', 'exec', 'drivemount', 'exec'])
+        self.assertEqual(run.call_args_list[2].args[0][-1], '/content/drive')
+        self.assertNotIn('git', run.call_args_list[1].kwargs['input'])
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    def test_branch_requires_repository(self, which):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                app.main(['--branch', 'main'])
 
     def test_existing_drive_directory_is_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,7 +1,7 @@
 [project]
 name = "colab-session"
 version = "0.1.0"
-description = "Create a Colab session with a GitHub repository and Google Drive"
+description = "Create a Colab session with optional GitHub repository and Google Drive"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
