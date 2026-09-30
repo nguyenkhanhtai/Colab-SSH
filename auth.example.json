@@ -1,3 +1,6 @@
 {
-  "github_pat_file": "github.pat"
+  "github_repositories": {
+    "https://github.com/OWNER/PROJECT_A": "project-a.pat",
+    "https://github.com/OWNER/PROJECT_B": "project-b.pat"
+  }
 }

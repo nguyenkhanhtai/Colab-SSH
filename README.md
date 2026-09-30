@@ -46,7 +46,8 @@ Sau khi kết nối, đăng nhập lần đầu bằng `codex login --device-aut
 Tool hiện lấy settings từ VS Code Stable mặc định trên Linux; có thể chỉnh
 `.local/environment.json` để chọn tools, extensions và remote settings.
 
-Code nằm tại `/content/REPO`; Drive nằm tại `/content/REPO/drive/MyDrive`.
+Nếu truyền GitHub URL, code nằm tại `/content/REPO` và Drive nằm tại `/content/REPO/drive/MyDrive`.
+Nếu không truyền URL, workspace là `/content` và Drive nằm tại `/content/drive/MyDrive`.
 `--drive-dir` đổi tên điểm mount, không chọn thư mục con của Drive.
 Nếu tên này đã tồn tại trong workspace, script dừng để tránh che hoặc ghi đè dữ liệu.
 Khi dùng GitHub, điểm mount được loại khỏi Git bằng `.git/info/exclude` chỉ trên VM.
@@ -56,7 +57,7 @@ Script in lệnh SSH, lấy URL trình duyệt và dừng session. Nếu có SSH
 `~/.ssh/id_ed25519`, tool tự cập nhật host `colab-session` trong `.ssh/config` của tool
 và thêm `Include` vào `~/.ssh/config` để VS Code thấy host ngay.
 Trong VS Code chọn **Remote-SSH: Connect to Host…** → `colab-session`,
-rồi mở `/content/REPO`.
+rồi mở `/content/REPO` nếu có clone repo, hoặc `/content` nếu không dùng GitHub.
 
 Để thiết lập lại SSH cho session đã có, chạy:
 
@@ -89,7 +90,7 @@ Repo public dùng ngay. Với repo private, thêm `--pat` để nhập GitHub Pe
 Token trong terminal (ký tự được ẩn):
 
 ```bash
-uv run start_colab.py https://github.com/OWNER/PRIVATE_REPO --pat
+uv run colab_ssh.py https://github.com/OWNER/PRIVATE_REPO --pat
 ```
 
 Nếu biến môi trường `GH_TOKEN` đã có sẵn, tool tự dùng token đó; `--pat` ưu tiên
@@ -101,20 +102,26 @@ Dùng PAT có quyền đọc repo đích. Không đặt token vào URL hoặc đ
 Lưu PAT trong `.local/github.pat`, chỉ một token trên một dòng, rồi chạy:
 
 ```bash
-uv run start_colab.py https://github.com/OWNER/PRIVATE_REPO --pat-file .local/github.pat
+uv run colab_ssh.py https://github.com/OWNER/PRIVATE_REPO --pat-file .local/github.pat
 ```
 
-Để tự đọc file mỗi lần chạy, tạo `.local/auth.json` theo mẫu:
+Để tự chọn PAT tương ứng với từng project, tạo `.local/auth.json` theo mẫu:
 
 ```json
 {
-  "github_pat_file": "github.pat"
+  "github_repositories": {
+    "https://github.com/OWNER/PROJECT_A": "project-a.pat",
+    "https://github.com/OWNER/PROJECT_B": "project-b.pat"
+  }
 }
 ```
 
 Có thể copy `auth.example.json` vào `.local/auth.json`. Đường dẫn PAT tương đối
 được tính từ thư mục chứa config; hỗ trợ đường dẫn tuyệt đối và `~`.
-Có thể giới hạn PAT cho một repo bằng trường `github_repository`:
+URL được so khớp không phân biệt chữ hoa/thường và chấp nhận cả dạng có `.git`.
+Project không có trong mapping sẽ không đọc PAT của project khác.
+
+Schema một project cũ vẫn được hỗ trợ:
 
 ```json
 {
@@ -123,9 +130,8 @@ Có thể giới hạn PAT cho một repo bằng trường `github_repository`:
 }
 ```
 
-Config có trường này chỉ được tự dùng khi URL repo khớp. Repo khác không đọc
-PAT từ config đó; vẫn có thể dùng credential riêng qua tùy chọn trực tiếp hoặc
-`GH_TOKEN`. Khi dùng `--auth-file` với repo không khớp, tool báo lỗi trước khi tạo VM.
+Với config mặc định, project không khớp mapping có thể dùng `GH_TOKEN`.
+Khi dùng `--auth-file` rõ ràng mà project không khớp, tool báo lỗi trước khi tạo VM.
 
 Sau đó chạy tool bình thường, không cần `--pat`. `--auth-file /path/auth.json`
 chọn config khác. `--pat`, `--pat-file`, `--auth-file` chỉ dùng một tùy chọn mỗi lần.
@@ -143,11 +149,6 @@ URL remote, cấu hình Git hay lịch sử code của Colab CLI. Helper tạm �
 lần clone kể cả khi Git báo lỗi. Token chỉ dùng để clone; các lần pull/push sau
 trong session cần xác thực riêng.
 
-<<<<<<< HEAD
-=======
-GitHub hoàn toàn không bắt buộc. Repo public dùng ngay. Repo private cần thông tin xác thực Git được chuẩn bị trên VM;
-script hiện không chuyển token/SSH key từ local, không nhận token trong URL.
->>>>>>> a185e29 (Remove forced repository option in colab-ssh)
 Dependencies và các lệnh chạy của repo đích do bạn chuẩn bị sau khi kết nối.
 Code ở ổ tạm: commit/push để lưu thay đổi. Chỉ dữ liệu ghi vào Drive
 mới tồn tại trên Drive sau khi dừng VM. Nếu setup lỗi, session được giữ lại để kiểm tra;

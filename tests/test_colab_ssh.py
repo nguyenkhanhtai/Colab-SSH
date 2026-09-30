@@ -19,18 +19,18 @@ class SessionTests(unittest.TestCase):
         self.addCleanup(env.stop)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        default = patch('start_colab.DEFAULT_AUTH', Path(temp.name) / 'auth.json')
+        default = patch('colab_ssh.DEFAULT_AUTH', Path(temp.name) / 'auth.json')
         default.start()
         self.addCleanup(default.stop)
-        config = patch('start_colab.configure', return_value=(Path('/tmp/ssh-test-config'), 'test'))
+        config = patch('colab_ssh.configure', return_value=(Path('/tmp/ssh-test-config'), 'test'))
         config.start()
         self.addCleanup(config.stop)
-        install = patch('start_colab.install')
+        install = patch('colab_ssh.install')
         self.install = install.start()
         self.addCleanup(install.stop)
         for target, value in [('load_profile', {'tools': [], 'extensions': [], 'remote_settings': {}}),
                               ('register_extensions', None), ('apply_environment', None)]:
-            mock = patch('start_colab.' + target, return_value=value)
+            mock = patch('colab_ssh.' + target, return_value=value)
             mock.start()
             self.addCleanup(mock.stop)
 
@@ -64,16 +64,23 @@ class SessionTests(unittest.TestCase):
     def test_session_without_repository(self, run, which):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(['--session', 'scratch']), 0)
-        self.assertEqual([c.args[0][1] for c in run.call_args_list],
-                         ['new', 'exec', 'drivemount', 'exec'])
+        self.assertEqual(run.call_args_list[0].args[0][1], 'new')
+        self.assertEqual(run.call_args_list[1].args[0][0], 'ssh')
+        self.assertEqual(run.call_args_list[2].args[0][1], 'drivemount')
+        self.assertEqual(run.call_args_list[3].args[0][0], 'ssh')
         self.assertEqual(run.call_args_list[2].args[0][-1], '/content/drive')
-        self.assertNotIn('git', run.call_args_list[1].kwargs['input'])
+        self.assertNotIn('git', run.call_args_list[1].args[0][-1])
 
     @patch('colab_ssh.shutil.which', return_value='/bin/colab')
     def test_branch_requires_repository(self, which):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 app.main(['--branch', 'main'])
+
+    def test_pat_requires_repository(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                app.main(['--pat'])
 
     def test_existing_drive_directory_is_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,9 +93,9 @@ class SessionTests(unittest.TestCase):
                     exec(app.clone_code('https://github.com/a/b.git', tmp, None, 'drive'), {})
             self.assertEqual(marker.read_text(), 'keep')
 
-    @patch('start_colab.getpass.getpass', return_value='test-secret')
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.getpass.getpass', return_value='test-secret')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_pat_uses_ssh_stdin_only(self, run, which, prompt):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(app.main(['https://github.com/a/b', '--pat']), 0)
@@ -99,15 +106,15 @@ class SessionTests(unittest.TestCase):
         self.assertNotIn('test-secret', output.getvalue())
         self.assertIn('credential.helper=', clone.args[0][-1])
 
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_environment_token(self, run, which):
         with patch.dict(os.environ, {'GH_TOKEN': 'env-secret'}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(['https://github.com/a/b']), 0)
         self.assertEqual(json.loads(run.call_args_list[1].kwargs['input']), 'env-secret')
 
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_pat_file_overrides_environment_without_exposure(self, run, which):
         with tempfile.TemporaryDirectory() as tmp:
             file = Path(tmp) / 'token.pat'
@@ -118,15 +125,15 @@ class SessionTests(unittest.TestCase):
         self.assertNotIn('file-secret', str(run.call_args_list[1].args))
         self.assertNotIn('file-secret', output.getvalue())
 
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_bad_pat_file_does_not_create_vm(self, run, which):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             app.main(['https://github.com/a/b', '--pat-file', '/nonexistent/token.pat'])
         run.assert_not_called()
 
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_default_auth_config(self, run, which):
         app.DEFAULT_AUTH.parent.mkdir(exist_ok=True)
         (app.DEFAULT_AUTH.parent / 'github.pat').write_text('default-secret')
@@ -135,9 +142,9 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(app.main(['https://github.com/a/b']), 0)
         self.assertEqual(json.loads(run.call_args_list[1].kwargs['input']), 'default-secret')
 
-    @patch('start_colab.getpass.getpass', return_value='')
-    @patch('start_colab.shutil.which', return_value='/bin/colab')
-    @patch('start_colab.subprocess.run')
+    @patch('colab_ssh.getpass.getpass', return_value='')
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
     def test_empty_pat_fails_before_creating_vm(self, run, which, prompt):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             app.main(['https://github.com/a/b', '--pat'])

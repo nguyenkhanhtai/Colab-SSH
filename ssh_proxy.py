@@ -11,9 +11,9 @@ def validate(session, gpu=None):
     state = json.loads(path.read_text()) if path.exists() else {}
     current = state.get(session)
     if not current:
-        raise ValueError(f'Session {session} has stopped or is missing. Create a new session with start_colab.py.')
+        raise ValueError(f'Session {session} has stopped or is missing. Create a new session with colab_ssh.py.')
     if current.get('variant') != 'GPU' or current.get('accelerator') in (None, 'NONE'):
-        raise ValueError(f'Session {session} is a CPU runtime. Create a new GPU session with start_colab.py.')
+        raise ValueError(f'Session {session} is a CPU runtime. Create a new GPU session with colab_ssh.py.')
     if gpu and current.get('accelerator', '').upper() != gpu.upper():
         raise ValueError(f'Session GPU is {current.get("accelerator")}, expected {gpu}.')
 

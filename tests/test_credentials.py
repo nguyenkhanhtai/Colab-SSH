@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,23 @@ class CredentialTests(unittest.TestCase):
             config = root / 'auth.json'
             config.write_text('{"github_pat_file":"github.pat"}')
             self.assertEqual(read_auth(config), 'test-token')
+
+    def test_repository_mapping_selects_matching_pat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'alpha.pat').write_text('alpha-secret')
+            (root / 'beta.pat').write_text('beta-secret')
+            config = root / 'auth.json'
+            config.write_text(json.dumps({
+                'github_repositories': {
+                    'https://github.com/Owner/Alpha.git': 'alpha.pat',
+                    'https://github.com/owner/beta': 'beta.pat',
+                }
+            }))
+            self.assertEqual(read_auth(config, 'https://github.com/owner/alpha'), 'alpha-secret')
+            self.assertEqual(read_auth(config, 'https://github.com/OWNER/BETA.git'), 'beta-secret')
+            self.assertEqual(read_auth(config, 'https://github.com/owner/other'), '')
+            self.assertEqual(read_auth(config), '')
 
     def test_bad_files_fail_without_echoing_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
