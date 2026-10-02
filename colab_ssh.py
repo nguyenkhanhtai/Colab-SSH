@@ -215,22 +215,24 @@ def main(argv=None):
             else:
                 print(f'Saved PAT mapping: {DEFAULT_AUTH}', flush=True)
         token = None
+        if not args.skip_drive:
+            print('Mounting Google Drive...', flush=True)
+            subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
+            drive_check = ("from pathlib import Path; "
+                           f"assert Path({(remote + '/' + args.drive_dir + '/MyDrive')!r}).is_dir(), "
+                           "'Drive authorization or mount failed'")
+            subprocess.run([*ssh, "python3 -c " + shlex.quote(drive_check)], check=True)
+            print('Google Drive mounted.', flush=True)
         if profile:
             print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
             apply_environment(ssh, profile)
             print('Development tools ready. Syncing agent context...', flush=True)
             sync_context(ssh)
             print('Agent context synced.', flush=True)
-        if not args.skip_drive:
-            print('Mounting Google Drive...', flush=True)
-            subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
-            print('Google Drive mounted.', flush=True)
         print('Verifying session...', flush=True)
         verify = "from pathlib import Path\n"
         if args.repo:
             verify += f"assert Path({(remote + '/.git')!r}).is_dir(), 'Repository clone missing'\n"
-        if not args.skip_drive:
-            verify += f"assert Path({(remote + '/' + args.drive_dir + '/MyDrive')!r}).is_dir(), 'Drive mount failed'\n"
         subprocess.run([*ssh, "python3 -c " + shlex.quote(verify)], check=True)
     except (subprocess.CalledProcessError, KeyboardInterrupt):
         print(f"Setup interrupted or failed. Session {session} may still be active.\n"

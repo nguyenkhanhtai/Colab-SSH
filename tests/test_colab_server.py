@@ -16,9 +16,14 @@ class FakeProcess:
     def __init__(self):
         self.stdin = CapturingBytesIO()
         self.returncode = None
+        self.terminated = False
 
     def poll(self):
         return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = -15
 
 
 class DashboardTests(unittest.TestCase):
@@ -31,6 +36,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('I’ve granted access', colab_server.HTML)
         self.assertIn('class=\"progress\"', colab_server.HTML)
         self.assertIn('${E(s.stage)}', colab_server.HTML)
+        self.assertIn('.auth-link.hidden{display:none}', colab_server.HTML)
+        self.assertIn("Preparing session: '+x.stage+' · '+x.progress+'%'", colab_server.HTML)
         self.assertNotIn('<form id="compute"', colab_server.HTML)
 
 
@@ -50,6 +57,31 @@ class ServerAppTests(unittest.TestCase):
         self.assertNotIn('web-secret', command)
         self.assertEqual(popen.return_value.stdin.getvalue(), b'web-secret\n')
 
+    def test_finished_job_missing_from_colab_is_pruned(self):
+        process = FakeProcess()
+        process.returncode = 0
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
+                patch('colab_server.session_manager.sessions', return_value=[]), \
+                patch('colab_server.subprocess.Popen', return_value=process):
+            app = colab_server.App('/bin/colab')
+            app.logs = Path(tmp)
+            app.create({'session': 'deleted-job', 'gpu': 'T4'})
+            self.assertEqual(app.dashboard_sessions(), [])
+            self.assertNotIn('deleted-job', app.jobs)
+
+    def test_stop_terminates_provisioning_and_removes_job(self):
+        process = FakeProcess()
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
+                patch('colab_server.session_manager.stop') as stop, \
+                patch('colab_server.subprocess.Popen', return_value=process):
+            app = colab_server.App('/bin/colab')
+            app.logs = Path(tmp)
+            app.create({'session': 'running-job', 'gpu': 'T4'})
+            app.stop('running-job')
+        self.assertTrue(process.terminated)
+        self.assertNotIn('running-job', app.jobs)
+        stop.assert_called_once_with('/bin/colab', 'running-job')
+
     def test_job_status_reports_provisioning_stage_and_progress(self):
         process = FakeProcess()
         with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
@@ -66,7 +98,7 @@ class ServerAppTests(unittest.TestCase):
             log.write_text(log.read_text() + 'Environment ready.\nDevelopment tools ready. Syncing agent context...\n')
             status = app.job_status('progress-job')
             self.assertEqual(status['stage'], 'Syncing agent context')
-            self.assertEqual(status['progress'], 72)
+            self.assertEqual(status['progress'], 78)
             log.write_text(log.read_text() + 'READY: /content\n')
             process.returncode = 0
             status = app.job_status('progress-job')
