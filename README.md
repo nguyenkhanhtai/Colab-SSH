@@ -1,107 +1,39 @@
-# Colab Session
+# Colab SSH & Control Plane
 
-Một script độc lập: tạo session Colab → tùy chọn clone GitHub → mount Google Drive.
-Chạy từ máy local, trong thư mục project, với `uv` và Python 3.12 trở lên:
+> **"Turn Colab into your own GPU server"**
+>
+> Giải pháp toàn diện quản lý runtime Google Colab, kết nối VS Code Remote-SSH, đồng bộ môi trường AI (Codex, Antigravity), sao lưu tự động lên Google Drive và điều khiển qua Web Dashboard / Docker.
 
-```bash
-uv tool install -e .
-colab-ssh
-colab-ssh https://github.com/OWNER/REPO
-colab-ssh https://github.com/OWNER/REPO --gpu L4 --branch main --drive-dir data
-```
+---
 
-## Quản lý nhiều session và dashboard
+## 📌 Tính năng nổi bật
 
-Mỗi runtime có SSH alias riêng (`colab-SESSION`) nên nhiều Colab session có thể
-chạy song song mà không ghi đè cấu hình của nhau. Liệt kê hoặc dừng một runtime
-trực tiếp từ tool:
+- ⚡ **VS Code Remote-SSH mượt mà**: Mỗi Colab session sở hữu SSH alias riêng (`colab-SESSION`), cấu hình độc lập, không ghi đè, hỗ trợ nhiều runtime song song.
+- 🖥️ **Web Dashboard trực quan**: Giao diện điều khiển local (port `6767`) giúp tạo runtime, theo dõi tiến trình provisioning theo thời gian thực, mở notebook và quản lý session chỉ với 1 click.
+- 💾 **Backup & Restore qua Google Drive**: Sao lưu toàn bộ workspace với mã định danh ngẫu nhiên (`bk-xxxxxxxx`) lưu tại `MyDrive/Colab-Backups`, dễ dàng khôi phục code vào bất kỳ runtime mới nào.
+- 🐳 **Đóng gói Docker & Docker Compose**: Thiết lập trọn vẹn môi trường (Python 3.12, Colab CLI, SSH keys) chỉ với một lệnh `docker compose up -d`.
+- 🤖 **Môi trường AI & Development tự động**: Tự động cài đặt Codex CLI, Antigravity CLI, áp dụng profile VS Code và đồng bộ ngữ cảnh (agents, skills, context allowlist).
+- 🔒 **Bảo mật cao cấp**: GitHub PAT được truyền bảo mật qua SSH stdin (không lộ trong command line/log), token được lưu phân quyền an toàn, hỗ trợ CSRF Origin check và lọc bỏ toàn bộ secrets khi đồng bộ hay backup.
 
-```bash
-colab-ssh --list
-colab-ssh --stop SESSION
-colab-ssh --backup SESSION
-colab-ssh --list-backups
-colab-ssh --restore bk-a1b2c3d4
-```
+---
 
-### Sao lưu (Backup) và Khôi phục (Restore) qua Google Drive
+## 🚀 Khởi động nhanh (Quickstart)
 
-Khi đang làm việc trên Colab, bạn có thể sao lưu toàn bộ code và workspace lên Google Drive với một mã key ngẫu nhiên được sinh tự động:
+### Cách 1: Sử dụng Docker & Docker Compose (Khuyên dùng)
+
+Không cần cài đặt Python, `uv` hay dependencies trên máy host:
 
 ```bash
-# Backup workspace của session lên Google Drive (MyDrive/Colab-Backups/<key>.tar.gz):
-colab-ssh --backup SESSION
+# 1. Đăng nhập Google Colab CLI (chỉ cần làm lần đầu)
+docker compose run --rm -it cli colab login
 
-# Xem danh sách các bản backup đã lưu:
-colab-ssh --list-backups
-
-# Khởi tạo một Colab session mới và lấy lại code từ backup key:
-colab-ssh --restore bk-a1b2c3d4
-colab-ssh --restore bk-a1b2c3d4 --gpu L4
-```
-
-Trên Web Dashboard (`http://127.0.0.1:6767`):
-- Mỗi card session đang sẵn sàng (`READY`) có nút **Backup** để sao lưu ngay lên Drive và hiển thị mã key để copy.
-- Khi tạo session mới (**+ New session**), bạn có thể bật tùy chọn **Restore from backup** và dán mã key vào để phục hồi toàn bộ code vào session mới.
-
-
-Lệnh stop gọi Colab CLI rồi thu hồi file SSH config và known-host riêng của
-session, kể cả khi Colab CLI báo lỗi. Để chạy control-plane local:
-
-```bash
-colab-ssh --serve
-# hoặc: colab-ssh-server --host 127.0.0.1 --port 6767
-```
-
-Mở `http://127.0.0.1:6767` để tạo, theo dõi, mở notebook và dừng nhiều session.
-Form tạo session có tùy chọn mount Google Drive, mặc định tắt. Khi bật,
-dashboard chờ Colab phát sinh authorization URL rồi hiển thị link Google. Sau khi
-cấp quyền, quay lại bấm **I’ve granted access**; server gửi xác nhận vào đúng
-provisioning process và tự tiếp tục setup. GitHub cũng là tùy chọn riêng; nếu bật
-mới hiện repository, branch và credentials.
-Có thể dùng PAT mapping đã lưu hoặc nhập PAT mới. PAT mới chỉ đi qua stdin của
-process tạo session, không xuất hiện trong command line, log hay API response, và
-được lưu vào mapping tương ứng sau khi clone thành công.
-Mỗi card hiển thị trạng thái provisioning và progress bar theo các mốc: tạo
-runtime, cấu hình SSH/GPU, cài development tools, đồng bộ agent context, xác thực
-Drive và verification. Job xuất hiện ngay khi submit; lỗi setup chuyển sang
-`FAILED` thay vì tiếp tục hiển thị chung là `RUNNING`.
-Dashboard refresh mỗi 15 giây; server reconcile state mỗi 30 giây và tự xóa SSH
-state của runtime không còn trong `~/.config/colab-cli/sessions.json`. Log của
-các tác vụ tạo session nền nằm trong `~/.config/colab-ssh/logs/`.
-Server mặc định chỉ nghe localhost vì API có quyền tạo và dừng runtime; không
-bind ra mạng công cộng nếu chưa đặt reverse proxy có authentication.
-
-Dependencies được khai báo trong `pyproject.toml` và khóa phiên bản trong `uv.lock`.
-`uv tool install -e .` cài `google-colab-cli` và `jupyter-kernel-client` vào `.venv` của project.
-Kết nối SSH cần OpenSSH trên máy local; VS Code cần extension Remote-SSH nếu sử dụng.
-Đăng nhập Google theo hướng dẫn
-của CLI; bước mount Drive có thể yêu cầu xác nhận trong trình duyệt.
-Tool dùng [Google Colab CLI](https://github.com/googlecolab/google-colab-cli);
-cần tài khoản Colab đủ điều kiện sử dụng CLI và runtime đã chọn.
-
-## Triển khai và sử dụng với Docker
-
-Để không phải cài đặt môi trường Python hay dependencies trực tiếp trên máy host, bạn có thể chạy toàn bộ hệ thống bằng Docker và Docker Compose:
-
-### 1. Khởi chạy Web Dashboard
-```bash
-# Build và chạy dashboard ngầm
+# 2. Khởi chạy Web Dashboard ở chế độ chạy ngầm
 docker compose up -d
 
-# Xem log server
-docker compose logs -f dashboard
+# 3. Mở trình duyệt truy cập: http://localhost:6767
 ```
-Truy cập Web Dashboard tại: `http://localhost:6767`
 
-### 2. Đăng nhập Google Colab (lần đầu)
-Nếu máy bạn chưa từng đăng nhập Google Colab CLI:
-```bash
-docker compose run --rm -it cli colab login
-```
-*(Thông tin đăng nhập sẽ được lưu bền vững vào `~/.config/colab-cli` trên máy host).*
-
-### 3. Chạy các lệnh CLI qua Docker
+Chạy các lệnh CLI qua Docker:
 ```bash
 # Xem danh sách session
 docker compose run --rm cli colab-ssh --list
@@ -109,184 +41,168 @@ docker compose run --rm cli colab-ssh --list
 # Tạo session mới
 docker compose run --rm cli colab-ssh https://github.com/OWNER/REPO --gpu T4
 
-# Backup workspace lên Google Drive
+# Backup session
 docker compose run --rm cli colab-ssh --backup <tên-session>
 
-# Xem danh sách backup
-docker compose run --rm cli colab-ssh --list-backups
-
-# Phục hồi session từ backup key
+# Khôi phục session từ backup key
 docker compose run --rm cli colab-ssh --restore bk-xxxxxxxx
-
-# Dừng session
-docker compose run --rm cli colab-ssh --stop <tên-session>
 ```
 
-### 4. Sử dụng Docker thuần (không qua docker-compose)
-```bash
-# Build image
-docker build -t colab-ssh:latest .
+---
 
-# Chạy Dashboard container
-docker run -d --name colab-ssh-dashboard \
-  -p 6767:6767 \
-  -v ~/.config/colab-cli:/root/.config/colab-cli \
-  -v ~/.config/colab-ssh:/root/.config/colab-ssh \
-  -v ~/.ssh:/root/.ssh \
-  colab-ssh:latest
-```
+### Cách 2: Sử dụng `uv` trên máy local
 
-Các volume được mount đảm bảo:
-- `~/.config/colab-cli`: Lưu trữ OAuth token đăng nhập và trạng thái session.
-- `~/.config/colab-ssh`: Lưu SSH configs, logs, GitHub PAT mapping an toàn.
-- `~/.ssh`: Chia sẻ SSH key (`id_ed25519`) giữa host và container để VS Code Remote-SSH kết nối trực tiếp được.
-
-## Môi trường lập trình tự động
-
-Mỗi session mới tự cài Codex CLI và Antigravity CLI bằng installer chính thức,
-áp dụng settings editor/file phù hợp với remote và đăng ký extensions tự cài khi
-VS Code kết nối. Profile lấy từ VS Code local lần đầu và lưu tại
-`~/.config/colab-ssh/environment.json` (không đưa vào Git). Theme và phím tắt tiếp tục dùng
-trực tiếp từ VS Code local. Profile không chứa token hay lịch sử đăng nhập.
-
-Tool cũng đồng bộ context chủ động qua SSH: `~/.codex/AGENTS.md`, Codex user
-skills, `~/.gemini/GEMINI.md` và Antigravity CLI user skills. Danh sách này là
-allowlist và bao gồm lịch sử hội thoại trong Codex `sessions`/`archived_sessions`
-cùng Antigravity CLI/IDE `conversations`. Tool không copy `auth.json`, `*.pat`,
-`.env`, MCP OAuth tokens, Codex rules/config/system skills, memories, brain,
-knowledge, logs hoặc cache. Nội dung người dùng từng dán trực tiếp vào hội thoại
-không thể tự động phân biệt với context thông thường và cũng sẽ được đồng bộ.
-Codex và Antigravity vẫn phải đăng nhập riêng trên Colab.
-`--skip-environment` bỏ qua cả cài CLI, profile VS Code và đồng bộ context.
-
-Installer: [Codex](https://developers.openai.com/codex/cli/) và
-[Antigravity](https://antigravity.google/docs/cli/install/).
-Các binary đã có sẵn sẽ được dùng lại. Phiên bản CLI được in khi setup.
-Extensions dùng `remote.SSH.defaultExtensions`; chúng được cài khi kết nối lần đầu
-hoặc ngay lúc setup nếu VS Code Server đã có trên VM. Danh sách áp dụng cho các
-host Remote-SSH của VS Code. Settings local được sao lưu tại
-`~/.config/Code/User/settings.colab-session.backup.jsonc` trước khi cập nhật.
-
-Làm mới profile từ máy local hoặc áp dụng lên session đã có:
+Yêu cầu: Python 3.12+ và [uv](https://github.com/astral-sh/uv).
 
 ```bash
-uv run setup_environment.py --capture --register
-uv run setup_environment.py --session SESSION
+# Cài đặt tool toàn cục ở chế độ editable:
+uv tool install -e .
+
+# Đăng nhập Colab CLI (nếu chưa đăng nhập):
+colab login
+
+# Khởi chạy session cơ bản:
+colab-ssh
+
+# Khởi chạy với GitHub repo và GPU:
+colab-ssh https://github.com/OWNER/REPO --gpu L4 --branch main
 ```
 
-Sau khi kết nối, đăng nhập lần đầu bằng `codex login --device-auth` và `agy`.
-Để tạo session chỉ clone/mount Drive, thêm `--skip-environment`.
-Tool hiện lấy settings từ VS Code Stable mặc định trên Linux; có thể chỉnh
-`~/.config/colab-ssh/environment.json` để chọn tools, extensions và remote settings.
+---
 
-Nếu truyền GitHub URL, code nằm tại `/content/REPO` và Drive nằm tại `/content/REPO/drive/MyDrive`.
-Nếu không truyền URL, workspace là `/content` và Drive nằm tại `/content/drive/MyDrive`.
-`--drive-dir` đổi tên điểm mount, không chọn thư mục con của Drive.
-Nếu tên này đã tồn tại trong workspace, script dừng để tránh che hoặc ghi đè dữ liệu.
-Khi dùng GitHub, điểm mount được loại khỏi Git bằng `.git/info/exclude` chỉ trên VM.
+## 🖥️ Web Dashboard (Local Control Plane)
 
-Mỗi lần chạy tạo session mới. `--session NAME` đặt tên cho session mới, không resume.
-Script in lệnh SSH, lấy URL trình duyệt và dừng session. Nếu có SSH key `~/.ssh/id_ed25519`, tool tạo một file `.conf` riêng trong
-`~/.config/colab-ssh/ssh/` và thêm wildcard `Include` vào `~/.ssh/config` để
-VS Code thấy tất cả runtime. Trong VS Code chọn **Remote-SSH: Connect to Host…**
-rồi chọn alias được tool in ra, sau đó mở `/content/REPO` hoặc `/content`.
+Khởi động server dashboard tại máy local:
+```bash
+colab-ssh --serve
+# hoặc: colab-ssh-server --host 127.0.0.1 --port 6767
+```
+Mở trình duyệt tại **`http://localhost:6767`**.
 
-Để thiết lập lại SSH cho session đã có, chạy:
+### Điểm nổi bật trên Dashboard:
+1. **Tạo runtime mới (+ New session)**:
+   - Chọn loại GPU: `T4`, `L4`, `G4`, `A100`, `H100`.
+   - Tùy chọn **Mount Google Drive**: Hỗ trợ flow xác thực OAuth trực tiếp.
+   - Tùy chọn **Restore from backup**: Dán mã key (`bk-xxxxxxxx`) để phục hồi ngay workspace cũ.
+   - Tùy chọn **Initialize from GitHub**: Hỗ trợ clone repo public hoặc nhập PAT (truyền an toàn qua stdin).
+2. **Theo dõi tiến trình**: Progress bar cập nhật chi tiết từng giai đoạn: Khởi tạo VM $\rightarrow$ Cấu hình SSH/GPU $\rightarrow$ Cài đặt AI tools $\rightarrow$ Sync context $\rightarrow$ Mount Drive $\rightarrow$ Sẵn sàng.
+3. **Thao tác 1-click**:
+   - **Open notebook ↗**: Mở thẳng Colab notebook trên trình duyệt.
+   - **Backup**: Sao lưu ngay workspace hiện tại lên Drive và trả về mã key để copy.
+   - **Stop**: Dọn dẹp máy ảo và gỡ cấu hình SSH an toàn.
+
+---
+
+## 💾 Cơ chế Backup & Restore (Google Drive)
+
+Toàn bộ code và file làm việc trên Colab có thể được sao lưu lên Google Drive để phòng ngừa trường hợp runtime bị ngắt kết nối:
 
 ```bash
-uv run setup_ssh.py --session SESSION
+# 1. Sao lưu workspace của một session đang chạy:
+colab-ssh --backup <tên-session>
+# Output: Backup Key: bk-a1b2c3d4, Path: MyDrive/Colab-Backups/bk-a1b2c3d4.tar.gz
+
+# 2. Xem danh sách các bản backup đã lưu trên Drive:
+colab-ssh --list-backups
+
+# 3. Tạo một session mới và khôi phục nguyên vẹn code từ mã key:
+colab-ssh --restore bk-a1b2c3d4 --gpu L4
 ```
 
-Lệnh tự đăng ký host vào SSH config. Có thể chạy ngay sau khi VM được tạo,
-kể cả khi bước mount Drive chưa hoàn tất. Với key khác, thêm
-`--identity /path/to/private_key`. Mỗi session có alias, file config và host key riêng để tránh nhầm runtime.
-`~/.config/colab-ssh/ssh/` của tool được loại khỏi Git. Thêm `--no-install` nếu
-chỉ muốn tạo config riêng mà chưa đăng ký vào `~/.ssh/config`.
+### Chi tiết kỹ thuật:
+- **Vị trí lưu trữ**: Thư mục `MyDrive/Colab-Backups` trên Google Drive cá nhân của bạn.
+- **Dữ liệu lưu**: Gồm file nén `bk-xxxxxxxx.tar.gz` (workspace) và file `bk-xxxxxxxx.json` (metadata: thời gian tạo, git commit, kích thước).
+- **An toàn bảo mật**: Tự động loại trừ các file bí mật (`.env`, `*.pat`, `auth.json`, token, SSH keys) khi tạo file nén; giải nén an toàn với cờ `--no-same-owner` để tránh xung đột quyền file.
 
-Tool kiểm tra GPU thực tế bằng `nvidia-smi` trước khi clone.
-Tool cũng đăng ký `/usr/lib64-nvidia` với Linux loader và shell environment để
-terminal SSH, VS Code và Python tìm được thư viện NVIDIA. Với VM đã có, sửa riêng bằng:
+---
 
-```bash
-uv run setup_gpu.py --session SESSION --gpu T4
+## 💻 Hướng dẫn dòng lệnh (CLI Reference)
+
+```text
+usage: colab-ssh [-h] [--gpu {T4,L4,G4,A100,H100}] [--session SESSION]
+                 [--branch BRANCH] [--drive-dir DRIVE_DIR] [--skip-drive]
+                 [--pat | --pat-file PAT_FILE | --auth-file AUTH_FILE]
+                 [--skip-environment]
+                 [--list | --stop SESSION | --serve | --backup SESSION | --list-backups]
+                 [--restore KEY] [repo]
 ```
 
-Proxy SSH kiểm tra
-session còn trong local state và là GPU runtime trước khi kết nối; session đã dừng
-hoặc là CPU sẽ báo lỗi. Điều này tránh hành vi Colab CLI tự tạo CPU runtime khi
-kết nối SSH vào tên session đã bị xóa. Sau khi dừng VM, tạo session mới bằng tool
-thay vì kết nối lại tên cũ. Chọn Python trên VM có PyTorch hỗ trợ CUDA để chạy GPU.
+### Các tùy chọn chính:
 
-Repo public dùng ngay. Với repo private, thêm `--pat` để nhập GitHub Personal Access
-Token trong terminal (ký tự được ẩn):
+| Tham số | Ý nghĩa |
+| :--- | :--- |
+| `repo` | URL GitHub HTTPS repository (tùy chọn) |
+| `--gpu` | Loại accelerator: `T4` (mặc định), `L4`, `G4`, `A100`, `H100` |
+| `--session NAME` | Đặt tên cụ thể cho session mới (mặc định tự sinh) |
+| `--branch BRANCH` | Nhánh hoặc tag git cần clone |
+| `--drive-dir DIR` | Thư mục mount Drive bên trong workspace (mặc định: `drive`) |
+| `--skip-drive` | Bỏ qua bước mount Google Drive |
+| `--pat` | Nhập GitHub PAT ẩn trên terminal |
+| `--pat-file FILE` | Đọc GitHub PAT từ file local |
+| `--auth-file FILE` | File cấu hình mapping PAT cho từng repository |
+| `--skip-environment` | Bỏ qua cài đặt Codex/Antigravity CLI và đồng bộ context |
+| `--list` | Xem danh sách các session đang hoạt động |
+| `--stop SESSION` | Dừng runtime và dọn dẹp cấu hình SSH |
+| `--serve` | Khởi chạy Web Dashboard local |
+| `--backup SESSION` | Sao lưu workspace của session lên Google Drive |
+| `--list-backups` | Xem danh sách các bản backup trên Drive |
+| `--restore KEY` | Khôi phục code từ backup key trong session mới |
 
-```bash
-colab-ssh https://github.com/OWNER/PRIVATE_REPO --pat
-```
+---
 
-Nếu biến môi trường `GH_TOKEN` đã có sẵn, tool tự dùng token đó; `--pat` ưu tiên
-token nhập trực tiếp. Token rỗng khi nhập sẽ dừng trước khi tạo VM.
-Dùng PAT có quyền đọc repo đích. Không đặt token vào URL hoặc đối số dòng lệnh.
-Sau khi clone thành công bằng `--pat`, tool tự lưu token vào file riêng trong
-`~/.config/colab-ssh/` và cập nhật mapping của repo trong `auth.json`. Lần chạy
-sau với cùng repo sẽ tự dùng PAT đã lưu. Clone thất bại không lưu token;
-`--pat-file` và `GH_TOKEN` không tự thay đổi mapping.
+## 🔌 Kết nối VS Code Remote-SSH
 
-### Đọc PAT từ file
+Khi một session được tạo thành công:
+1. Tool tự sinh cấu hình SSH tại `~/.config/colab-ssh/ssh/<session>.conf` và đăng ký vào `~/.ssh/config`.
+2. Mở **VS Code**, nhấn `F1` (hoặc `Ctrl+Shift+P` / `Cmd+Shift+P`).
+3. Chọn **Remote-SSH: Connect to Host...** $\rightarrow$ chọn `colab-<session>`.
+4. Mở thư mục làm việc: `/content/<repo>` (nếu clone repo) hoặc `/content`.
+5. Điểm mount Drive sẽ nằm tại `/content/<repo>/drive/MyDrive` hoặc `/content/drive/MyDrive`.
 
-Lưu PAT trong `~/.config/colab-ssh/github.pat`, chỉ một token trên một dòng, rồi chạy:
+---
 
-```bash
-colab-ssh https://github.com/OWNER/PRIVATE_REPO --pat-file ~/.config/colab-ssh/github.pat
-```
+## 🔒 Quản lý GitHub PAT & Bảo mật
 
-Để tự chọn PAT tương ứng với từng project, tạo `~/.config/colab-ssh/auth.json` theo mẫu:
-
-```json
-{
-  "github_repositories": {
-    "https://github.com/OWNER/PROJECT_A": "project-a.pat",
-    "https://github.com/OWNER/PROJECT_B": "project-b.pat"
+- **Public Repository**: Không cần cấu hình thêm, clone trực tiếp.
+- **Private Repository**:
+  ```bash
+  # Nhập trực tiếp qua terminal (ký tự được ẩn an toàn):
+  colab-ssh https://github.com/OWNER/PRIVATE_REPO --pat
+  ```
+  Sau khi clone thành công, PAT sẽ được tự động lưu vào `~/.config/colab-ssh/auth.json` cho các lần sử dụng sau.
+- **Mapping file `auth.json`**:
+  ```json
+  {
+    "github_repositories": {
+      "https://github.com/OWNER/PROJECT_A": "project-a.pat",
+      "https://github.com/OWNER/PROJECT_B": "project-b.pat"
+    }
   }
-}
+  ```
+- **Bảo mật**: PAT không bao giờ xuất hiện trong log, command line arguments hay URL. Quá trình clone sử dụng script `GIT_ASKPASS` tạm thời và tự hủy ngay sau khi hoàn tất.
+
+---
+
+## 🤖 Môi trường AI & Đồng bộ Context
+
+Mỗi session mới sẽ tự động:
+1. Cài đặt phiên bản chính thức của **Codex CLI** và **Antigravity CLI**.
+2. Đăng ký extensions VS Code cần thiết (`remote.SSH.defaultExtensions`).
+3. Tối ưu cấu hình GPU loader (`/usr/lib64-nvidia`) để PyTorch, CUDA và Python nhận diện chính xác card đồ họa.
+4. Đồng bộ context lập trình của bạn từ máy local sang remote:
+   - Allowlist an toàn: `~/.codex/AGENTS.md`, Codex user skills, `~/.gemini/GEMINI.md`, Antigravity skills và lịch sử hội thoại.
+   - Loại trừ tuyệt đối: Tokens, SSH keys, credentials, file `.env`, memories, cache và logs.
+
+---
+
+## 🧪 Kiểm thử (Testing)
+
+Dự án đi kèm bộ unit tests toàn diện (61 tests) kiểm tra toàn bộ luồng provisioning, SSH proxy, GPU setup, CSRF origin check, backup/restore logic:
+
+```bash
+# Chạy kiểm thử trên máy local:
+python3 -m unittest discover -s tests -v
+
+# Hoặc chạy kiểm thử bên trong Docker container:
+docker run --rm colab-ssh:latest python3 -m unittest discover -s tests -v
 ```
-
-Có thể copy `auth.example.json` vào `~/.config/colab-ssh/auth.json`. Đường dẫn PAT tương đối
-được tính từ thư mục chứa config; hỗ trợ đường dẫn tuyệt đối và `~`.
-URL được so khớp không phân biệt chữ hoa/thường và chấp nhận cả dạng có `.git`.
-Project không có trong mapping sẽ không đọc PAT của project khác.
-
-Schema một project cũ vẫn được hỗ trợ:
-
-```json
-{
-  "github_pat_file": "github.pat",
-  "github_repository": "https://github.com/OWNER/REPO.git"
-}
-```
-
-Với config mặc định, project không khớp mapping có thể dùng `GH_TOKEN`.
-Khi dùng `--auth-file` rõ ràng mà project không khớp, tool báo lỗi trước khi tạo VM.
-
-Sau đó chạy tool bình thường, không cần `--pat`. `--auth-file /path/auth.json`
-chọn config khác. `--pat`, `--pat-file`, `--auth-file` chỉ dùng một tùy chọn mỗi lần.
-Tùy chọn nhập/file chỉ định trực tiếp được ưu tiên; sau đó tới `~/.config/colab-ssh/auth.json`,
-rồi `GH_TOKEN`. File thiếu, rỗng hoặc sai định dạng sẽ dừng trước khi tạo VM.
-
-`~/.config/colab-ssh/`, `*.pat` và `auth.json` được loại khỏi Git. Giới hạn quyền đọc bằng
-`chmod 600 ~/.config/colab-ssh/*.pat ~/.config/colab-ssh/auth.json`. Token được đọc ở local, truyền qua
-stdin SSH và không in ra log. Chỉ GitHub PAT được cấu hình từ file này.
-
-Clone bằng PAT cần OpenSSH và SSH key local đã được Colab CLI hỗ trợ (ví dụ
-`~/.ssh/id_ed25519`; tạo bằng `ssh-keygen -t ed25519` nếu chưa có key).
-Token được gửi qua stdin của SSH, dùng tạm cho Git qua `GIT_ASKPASS`, không ghi vào
-URL remote, cấu hình Git hay lịch sử code của Colab CLI. Helper tạm được dọn sau
-lần clone kể cả khi Git báo lỗi. Token chỉ dùng để clone; các lần pull/push sau
-trong session cần xác thực riêng.
-
-Dependencies và các lệnh chạy của repo đích do bạn chuẩn bị sau khi kết nối.
-Code ở ổ tạm: commit/push để lưu thay đổi. Chỉ dữ liệu ghi vào Drive
-mới tồn tại trên Drive sau khi dừng VM. Nếu setup lỗi, session được giữ lại để kiểm tra;
-dùng lệnh `stop` được in ra khi không cần nữa.
-
-Kiểm tra local (không tạo VM): `uv run python -m unittest discover -s tests -v`.
