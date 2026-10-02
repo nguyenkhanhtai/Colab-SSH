@@ -19,6 +19,8 @@ services:
   cli:
     build: .
     image: colab-ssh:latest
+    profiles:
+      - cli
     environment:
       - GH_TOKEN=${GH_TOKEN:-}
     volumes:
