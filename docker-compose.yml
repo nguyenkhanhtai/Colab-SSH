@@ -1,0 +1,28 @@
+services:
+  dashboard:
+    build: .
+    image: colab-ssh:latest
+    container_name: colab-ssh-dashboard
+    restart: unless-stopped
+    ports:
+      - "6767:6767"
+    environment:
+      - COLAB_SSH_HOST=0.0.0.0
+      - COLAB_SSH_PORT=6767
+      - GH_TOKEN=${GH_TOKEN:-}
+    volumes:
+      - ${HOME}/.config/colab-cli:/root/.config/colab-cli
+      - ${HOME}/.config/colab-ssh:/root/.config/colab-ssh
+      - ${HOME}/.ssh:/root/.ssh
+    command: ["colab-ssh-server"]
+
+  cli:
+    build: .
+    image: colab-ssh:latest
+    environment:
+      - GH_TOKEN=${GH_TOKEN:-}
+    volumes:
+      - ${HOME}/.config/colab-cli:/root/.config/colab-cli
+      - ${HOME}/.config/colab-ssh:/root/.config/colab-ssh
+      - ${HOME}/.ssh:/root/.ssh
+    command: ["colab-ssh", "--list"]

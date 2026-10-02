@@ -107,8 +107,8 @@ def main(argv=None):
     management.add_argument("--backup", metavar="SESSION", help="Backup a running session workspace to Google Drive")
     management.add_argument("--list-backups", action="store_true", help="List available backups on Google Drive")
     parser.add_argument("--restore", metavar="KEY", help="Restore workspace from a Google Drive backup key in a NEW session")
-    parser.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
-    parser.add_argument("--port", type=int, default=6767, help=argparse.SUPPRESS)
+    parser.add_argument("--host", default=os.environ.get("COLAB_SSH_HOST", "127.0.0.1"), help=argparse.SUPPRESS)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("COLAB_SSH_PORT", "6767")), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.list or args.stop or args.serve or args.backup or args.list_backups:
         if args.repo:

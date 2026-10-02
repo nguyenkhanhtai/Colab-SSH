@@ -27,6 +27,7 @@ py-modules = [
     "setup_gpu",
     "setup_ssh",
     "ssh_proxy",
+    "backup_manager",
 ]
 
 [tool.uv]

@@ -2,6 +2,7 @@
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -225,7 +226,7 @@ def handler_for(app):
             origin = self.headers.get('Origin')
             if origin:
                 parsed = urlparse(origin)
-                if parsed.hostname not in ('127.0.0.1', 'localhost'):
+                if parsed.hostname not in ('127.0.0.1', 'localhost', '0.0.0.0'):
                     self.reply({'error': 'Cross-origin request forbidden'}, 403)
                     return False
             return True
@@ -269,6 +270,12 @@ def serve(host='127.0.0.1', port=6767, interval=30):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--host',default='127.0.0.1'); parser.add_argument('--port',type=int,default=6767); args=parser.parse_args(argv); serve(args.host,args.port)
+    default_host = os.environ.get('COLAB_SSH_HOST', '127.0.0.1')
+    default_port = int(os.environ.get('COLAB_SSH_PORT', '6767'))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host', default=default_host)
+    parser.add_argument('--port', type=int, default=default_port)
+    args = parser.parse_args(argv)
+    serve(args.host, args.port)
 
 if __name__=='__main__': main()
