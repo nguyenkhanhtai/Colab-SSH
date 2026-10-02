@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import colab_ssh as app
 
@@ -219,6 +219,49 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(app.main(['--stop', 'alpha']), 0)
         stop.assert_called_once_with('/bin/colab', 'alpha')
 
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    def test_backup_session(self, which):
+        with patch('backup_manager.backup', return_value={'key': 'bk-1234abcd', 'size_mb': 5.2, 'path': '/path'}) as backup_mock, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(app.main(['--backup', 'alpha']), 0)
+        backup_mock.assert_called_once_with('/bin/colab', 'alpha')
+        self.assertIn('bk-1234abcd', output.getvalue())
+        self.assertIn('colab-ssh --restore bk-1234abcd', output.getvalue())
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    def test_backup_with_repo_fails(self, which):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                app.main(['https://github.com/a/b', '--backup', 'alpha'])
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    def test_restore_validation(self, which):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                app.main(['https://github.com/a/b', '--restore', 'bk-1234abcd'])
+            with self.assertRaises(SystemExit):
+                app.main(['--restore', 'bk-1234abcd', '--skip-drive'])
+            with self.assertRaises(SystemExit):
+                app.main(['--restore', 'invalid/key'])
+
+    @patch('colab_ssh.shutil.which', return_value='/bin/colab')
+    @patch('colab_ssh.subprocess.run')
+    def test_restore_session_success(self, run, which):
+        restore_result = MagicMock()
+        restore_result.returncode = 0
+        restore_result.stdout = json.dumps({"status": "ok", "workspace": "/content/restored_repo"}) + "\n"
+
+        # Mock sequence: 1: new, 2: gpu_check, 3: drivemount, 4: drive_check, 5: restore_code, 6: verify
+        run.side_effect = [None, None, None, None, restore_result, None]
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(app.main(['--restore', 'bk-1234abcd', '--session', 'restored-session']), 0)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[0][1], 'new')
+        self.assertEqual(commands[2][1], 'drivemount')
+        self.assertIn('bk-1234abcd', str(commands[4]))
+        self.assertIn('READY: /content/restored_repo', output.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()
+

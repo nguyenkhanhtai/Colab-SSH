@@ -143,6 +143,47 @@ class ServerAppTests(unittest.TestCase):
         self.assertIn('--skip-drive', command)
         self.assertNotIn('github.com', ' '.join(command))
 
+    def test_create_with_restore_key(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
+                patch('colab_server.subprocess.Popen', return_value=FakeProcess()) as popen:
+            app = colab_server.App('/bin/colab')
+            app.logs = Path(tmp)
+            app.create({'session': 'restored', 'gpu': 'T4', 'restore_key': 'bk-1234abcd'})
+        command = popen.call_args.args[0]
+        self.assertIn('--restore', command)
+        self.assertIn('bk-1234abcd', command)
+        self.assertNotIn('--skip-drive', command)
+
+    def test_create_with_restore_key_and_repo_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()):
+            app = colab_server.App('/bin/colab')
+            app.logs = Path(tmp)
+            with self.assertRaises(ValueError):
+                app.create({'session': 'invalid', 'gpu': 'T4', 'restore_key': 'bk-1234abcd',
+                            'repository': {'enabled': True, 'url': 'https://github.com/a/b'}})
+
+    def test_backup_endpoint(self):
+        app = colab_server.App('/bin/colab')
+        with patch('colab_server.backup_manager.backup', return_value={'key': 'bk-1234abcd', 'size_mb': 12.3, 'path': '/p'}) as mock_backup, \
+                patch('colab_server.session_manager.validate_name'):
+            res = app.backup('session-1')
+        self.assertEqual(res['key'], 'bk-1234abcd')
+        mock_backup.assert_called_once_with('/bin/colab', 'session-1')
+
+    def test_cross_origin_request_is_blocked(self):
+        app = colab_server.App('/bin/colab')
+        handler_cls = colab_server.handler_for(app)
+        handler = handler_cls.__new__(handler_cls)
+        handler.headers = {'Origin': 'http://evil.com'}
+        replied = {}
+        def mock_reply(data, status=200):
+            replied['data'] = data
+            replied['status'] = status
+        handler.reply = mock_reply
+        self.assertFalse(handler.validate_origin())
+        self.assertEqual(replied['status'], 403)
+        self.assertIn('forbidden', replied['data']['error'])
+
 
 if __name__ == '__main__':
     unittest.main()

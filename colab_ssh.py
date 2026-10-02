@@ -19,6 +19,7 @@ from setup_environment import load_profile, register_extensions, apply as apply_
 from ssh_proxy import command as proxy_command
 from credentials import DEFAULT_AUTH, read_auth, read_pat, save_pat_mapping
 from setup_gpu import remote_code as gpu_setup_code
+import backup_manager
 
 
 def github_url(value):
@@ -103,12 +104,17 @@ def main(argv=None):
     management.add_argument("--list", action="store_true", help="List active sessions")
     management.add_argument("--stop", metavar="SESSION", help="Stop a session and remove its SSH state")
     management.add_argument("--serve", action="store_true", help="Run the local multi-session dashboard")
+    management.add_argument("--backup", metavar="SESSION", help="Backup a running session workspace to Google Drive")
+    management.add_argument("--list-backups", action="store_true", help="List available backups on Google Drive")
+    parser.add_argument("--restore", metavar="KEY", help="Restore workspace from a Google Drive backup key in a NEW session")
     parser.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=6767, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    if args.list or args.stop or args.serve:
+    if args.list or args.stop or args.serve or args.backup or args.list_backups:
         if args.repo:
             parser.error("A repository URL cannot be combined with management commands")
+        if args.restore:
+            parser.error("--restore cannot be combined with management commands")
         cli = find_colab_cli()
         if cli is None:
             parser.error("Colab CLI missing. Install with: uv tool install -e .")
@@ -117,6 +123,35 @@ def main(argv=None):
             serve(args.host, args.port)
             return 0
         import session_manager
+        if args.backup:
+            try:
+                session_manager.validate_name(args.backup)
+                print(f"Backing up session '{args.backup}' to Google Drive...", flush=True)
+                res = backup_manager.backup(cli, args.backup)
+            except (ValueError, OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+                parser.error(str(exc))
+            print(f"Backup successful!\n"
+                  f"Backup Key: {res['key']}\n"
+                  f"Size: {res.get('size_mb', 'N/A')} MB\n"
+                  f"Path: {res.get('path')}\n"
+                  f"To restore in a new session: colab-ssh --restore {res['key']}")
+            return 0
+        if args.list_backups:
+            rows = session_manager.sessions(cli=cli)
+            if not rows:
+                parser.error("No active session found to read Google Drive backups. At least one running session is required.")
+            try:
+                backups = backup_manager.list_backups(cli, rows[0]['name'])
+            except (ValueError, OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+                parser.error(str(exc))
+            if not backups:
+                print("No backups found in Google Drive (MyDrive/Colab-Backups)")
+            else:
+                print(f"{'KEY':<16} {'CREATED (UTC)':<24} {'SESSION':<20} {'SIZE':<10} {'WORKSPACE'}")
+                print("-" * 85)
+                for b in backups:
+                    print(f"{b.get('key', ''):<16} {str(b.get('created_at', ''))[:19]:<24} {b.get('session', ''):<20} {str(b.get('size_mb', '')) + ' MB':<10} {b.get('workspace', '')}")
+            return 0
         if args.stop:
             try:
                 session_manager.stop(cli, args.stop)
@@ -130,6 +165,17 @@ def main(argv=None):
         for item in rows:
             print(f"{item['name']}  {item['gpu']}  {item['ssh_command']}")
         return 0
+    if args.restore:
+        if args.repo:
+            parser.error("A repository URL cannot be combined with --restore")
+        if args.branch:
+            parser.error("--branch cannot be combined with --restore")
+        if args.skip_drive:
+            parser.error("--skip-drive cannot be combined with --restore (Drive is required to access backups)")
+        try:
+            backup_manager.validate_key(args.restore)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.branch and not args.repo:
         parser.error("--branch requires a GitHub repository URL")
     if not args.repo and (args.pat or args.pat_stdin or args.pat_file or args.auth_file):
@@ -199,23 +245,10 @@ def main(argv=None):
                "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
                "-o", "ConnectTimeout=30", f"root@{session}"]
         gpu_check = gpu_setup_code(args.gpu)
-        workspace_code = (clone_code(url, remote, args.branch, args.drive_dir, authenticated=bool(token))
-                          if args.repo else prepare_workspace_code(remote, args.drive_dir))
-        code = gpu_check + workspace_code
-        print('Configuring workspace and GPU...', flush=True)
-        subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
-                       input=json.dumps(token) if token else "", text=True, check=True)
-        print('Workspace and GPU ready.', flush=True)
-        if args.pat or args.pat_stdin:
-            try:
-                save_pat_mapping(url, token, DEFAULT_AUTH)
-            except (ValueError, OSError) as exc:
-                print(f'Warning: clone succeeded but PAT mapping could not be saved: {exc}',
-                      file=sys.stderr)
-            else:
-                print(f'Saved PAT mapping: {DEFAULT_AUTH}', flush=True)
-        token = None
-        if not args.skip_drive:
+        if args.restore:
+            print('Configuring GPU...', flush=True)
+            subprocess.run([*ssh, "python3 -c " + shlex.quote(gpu_check)], check=True)
+            print('GPU ready.', flush=True)
             print('Mounting Google Drive...', flush=True)
             subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
             drive_check = ("from pathlib import Path; "
@@ -223,6 +256,44 @@ def main(argv=None):
                            "'Drive authorization or mount failed'")
             subprocess.run([*ssh, "python3 -c " + shlex.quote(drive_check)], check=True)
             print('Google Drive mounted.', flush=True)
+            print('Restoring workspace from backup...', flush=True)
+            restore_code = backup_manager.restore_remote_code(args.restore)
+            res = subprocess.run([*ssh, "python3 -c " + shlex.quote(restore_code)],
+                                 capture_output=True, text=True, check=True)
+            for line in reversed(res.stdout.splitlines()):
+                try:
+                    meta = json.loads(line.strip())
+                    if meta.get("status") == "ok":
+                        remote = meta.get("workspace", remote)
+                        break
+                except json.JSONDecodeError:
+                    pass
+            print('Workspace restored from backup.', flush=True)
+        else:
+            workspace_code = (clone_code(url, remote, args.branch, args.drive_dir, authenticated=bool(token))
+                              if args.repo else prepare_workspace_code(remote, args.drive_dir))
+            code = gpu_check + workspace_code
+            print('Configuring workspace and GPU...', flush=True)
+            subprocess.run([*ssh, "python3 -c " + shlex.quote(code)],
+                           input=json.dumps(token) if token else "", text=True, check=True)
+            print('Workspace and GPU ready.', flush=True)
+            if args.pat or args.pat_stdin:
+                try:
+                    save_pat_mapping(url, token, DEFAULT_AUTH)
+                except (ValueError, OSError) as exc:
+                    print(f'Warning: clone succeeded but PAT mapping could not be saved: {exc}',
+                          file=sys.stderr)
+                else:
+                    print(f'Saved PAT mapping: {DEFAULT_AUTH}', flush=True)
+            token = None
+            if not args.skip_drive:
+                print('Mounting Google Drive...', flush=True)
+                subprocess.run([cli, "drivemount", "-s", session, f"{remote}/{args.drive_dir}"], check=True)
+                drive_check = ("from pathlib import Path; "
+                               f"assert Path({(remote + '/' + args.drive_dir + '/MyDrive')!r}).is_dir(), "
+                               "'Drive authorization or mount failed'")
+                subprocess.run([*ssh, "python3 -c " + shlex.quote(drive_check)], check=True)
+                print('Google Drive mounted.', flush=True)
         if profile:
             print('Preparing Codex, Antigravity and VS Code preferences...', flush=True)
             apply_environment(ssh, profile)
@@ -233,6 +304,8 @@ def main(argv=None):
         verify = "from pathlib import Path\n"
         if args.repo:
             verify += f"assert Path({(remote + '/.git')!r}).is_dir(), 'Repository clone missing'\n"
+        elif args.restore:
+            verify += f"assert Path({remote!r}).is_dir(), 'Restored workspace missing'\n"
         subprocess.run([*ssh, "python3 -c " + shlex.quote(verify)], check=True)
     except (subprocess.CalledProcessError, KeyboardInterrupt):
         print(f"Setup interrupted or failed. Session {session} may still be active.\n"

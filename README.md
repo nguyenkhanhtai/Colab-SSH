@@ -19,7 +19,31 @@ trực tiếp từ tool:
 ```bash
 colab-ssh --list
 colab-ssh --stop SESSION
+colab-ssh --backup SESSION
+colab-ssh --list-backups
+colab-ssh --restore bk-a1b2c3d4
 ```
+
+### Sao lưu (Backup) và Khôi phục (Restore) qua Google Drive
+
+Khi đang làm việc trên Colab, bạn có thể sao lưu toàn bộ code và workspace lên Google Drive với một mã key ngẫu nhiên được sinh tự động:
+
+```bash
+# Backup workspace của session lên Google Drive (MyDrive/Colab-Backups/<key>.tar.gz):
+colab-ssh --backup SESSION
+
+# Xem danh sách các bản backup đã lưu:
+colab-ssh --list-backups
+
+# Khởi tạo một Colab session mới và lấy lại code từ backup key:
+colab-ssh --restore bk-a1b2c3d4
+colab-ssh --restore bk-a1b2c3d4 --gpu L4
+```
+
+Trên Web Dashboard (`http://127.0.0.1:6767`):
+- Mỗi card session đang sẵn sàng (`READY`) có nút **Backup** để sao lưu ngay lên Drive và hiển thị mã key để copy.
+- Khi tạo session mới (**+ New session**), bạn có thể bật tùy chọn **Restore from backup** và dán mã key vào để phục hồi toàn bộ code vào session mới.
+
 
 Lệnh stop gọi Colab CLI rồi thu hồi file SSH config và known-host riêng của
 session, kể cả khi Colab CLI báo lỗi. Để chạy control-plane local:
