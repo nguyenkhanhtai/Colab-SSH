@@ -77,7 +77,25 @@ mount.mkdir()
 '''
 
 
+def patch_colab_cli():
+    try:
+        import colab_cli.commands.automation as auto
+        target = Path(auto.__file__)
+        text = target.read_text(encoding="utf-8")
+        broken = 'with open("/dev/tty") as tty:\n                    tty.readline()'
+        fixed = ('try:\n'
+                 '                    with open("/dev/tty") as tty:\n'
+                 '                        tty.readline()\n'
+                 '                except Exception:\n'
+                 '                    sys.stdin.readline()')
+        if broken in text:
+            target.write_text(text.replace(broken, fixed), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def find_colab_cli():
+    patch_colab_cli()
     cli = shutil.which("colab")
     if cli:
         return cli

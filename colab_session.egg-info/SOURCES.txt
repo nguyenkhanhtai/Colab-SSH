@@ -1,4 +1,5 @@
 README.md
+backup_manager.py
 colab_server.py
 colab_ssh.py
 credentials.py
@@ -14,6 +15,7 @@ colab_session.egg-info/dependency_links.txt
 colab_session.egg-info/entry_points.txt
 colab_session.egg-info/requires.txt
 colab_session.egg-info/top_level.txt
+tests/test_backup_manager.py
 tests/test_colab_server.py
 tests/test_colab_ssh.py
 tests/test_credentials.py

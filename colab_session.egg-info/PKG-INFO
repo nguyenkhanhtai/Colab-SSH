@@ -28,7 +28,31 @@ trực tiếp từ tool:
 ```bash
 colab-ssh --list
 colab-ssh --stop SESSION
+colab-ssh --backup SESSION
+colab-ssh --list-backups
+colab-ssh --restore bk-a1b2c3d4
 ```
+
+### Sao lưu (Backup) và Khôi phục (Restore) qua Google Drive
+
+Khi đang làm việc trên Colab, bạn có thể sao lưu toàn bộ code và workspace lên Google Drive với một mã key ngẫu nhiên được sinh tự động:
+
+```bash
+# Backup workspace của session lên Google Drive (MyDrive/Colab-Backups/<key>.tar.gz):
+colab-ssh --backup SESSION
+
+# Xem danh sách các bản backup đã lưu:
+colab-ssh --list-backups
+
+# Khởi tạo một Colab session mới và lấy lại code từ backup key:
+colab-ssh --restore bk-a1b2c3d4
+colab-ssh --restore bk-a1b2c3d4 --gpu L4
+```
+
+Trên Web Dashboard (`http://127.0.0.1:6767`):
+- Mỗi card session đang sẵn sàng (`READY`) có nút **Backup** để sao lưu ngay lên Drive và hiển thị mã key để copy.
+- Khi tạo session mới (**+ New session**), bạn có thể bật tùy chọn **Restore from backup** và dán mã key vào để phục hồi toàn bộ code vào session mới.
+
 
 Lệnh stop gọi Colab CLI rồi thu hồi file SSH config và known-host riêng của
 session, kể cả khi Colab CLI báo lỗi. Để chạy control-plane local:
@@ -64,6 +88,67 @@ Kết nối SSH cần OpenSSH trên máy local; VS Code cần extension Remote-S
 của CLI; bước mount Drive có thể yêu cầu xác nhận trong trình duyệt.
 Tool dùng [Google Colab CLI](https://github.com/googlecolab/google-colab-cli);
 cần tài khoản Colab đủ điều kiện sử dụng CLI và runtime đã chọn.
+
+## Triển khai và sử dụng với Docker
+
+Để không phải cài đặt môi trường Python hay dependencies trực tiếp trên máy host, bạn có thể chạy toàn bộ hệ thống bằng Docker và Docker Compose:
+
+### 1. Khởi chạy Web Dashboard
+```bash
+# Build và chạy dashboard ngầm
+docker compose up -d
+
+# Xem log server
+docker compose logs -f dashboard
+```
+Truy cập Web Dashboard tại: `http://localhost:6767`
+
+### 2. Đăng nhập Google Colab (lần đầu)
+Nếu máy bạn chưa từng đăng nhập Google Colab CLI:
+```bash
+docker compose run --rm -it cli colab login
+```
+*(Thông tin đăng nhập sẽ được lưu bền vững vào `~/.config/colab-cli` trên máy host).*
+
+### 3. Chạy các lệnh CLI qua Docker
+```bash
+# Xem danh sách session
+docker compose run --rm cli colab-ssh --list
+
+# Tạo session mới
+docker compose run --rm cli colab-ssh https://github.com/OWNER/REPO --gpu T4
+
+# Backup workspace lên Google Drive
+docker compose run --rm cli colab-ssh --backup <tên-session>
+
+# Xem danh sách backup
+docker compose run --rm cli colab-ssh --list-backups
+
+# Phục hồi session từ backup key
+docker compose run --rm cli colab-ssh --restore bk-xxxxxxxx
+
+# Dừng session
+docker compose run --rm cli colab-ssh --stop <tên-session>
+```
+
+### 4. Sử dụng Docker thuần (không qua docker-compose)
+```bash
+# Build image
+docker build -t colab-ssh:latest .
+
+# Chạy Dashboard container
+docker run -d --name colab-ssh-dashboard \
+  -p 6767:6767 \
+  -v ~/.config/colab-cli:/root/.config/colab-cli \
+  -v ~/.config/colab-ssh:/root/.config/colab-ssh \
+  -v ~/.ssh:/root/.ssh \
+  colab-ssh:latest
+```
+
+Các volume được mount đảm bảo:
+- `~/.config/colab-cli`: Lưu trữ OAuth token đăng nhập và trạng thái session.
+- `~/.config/colab-ssh`: Lưu SSH configs, logs, GitHub PAT mapping an toàn.
+- `~/.ssh`: Chia sẻ SSH key (`id_ed25519`) giữa host và container để VS Code Remote-SSH kết nối trực tiếp được.
 
 ## Môi trường lập trình tự động
 

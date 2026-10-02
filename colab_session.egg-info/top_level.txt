@@ -1,3 +1,4 @@
+backup_manager
 colab_server
 colab_ssh
 credentials

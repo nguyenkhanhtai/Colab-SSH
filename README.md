@@ -80,6 +80,67 @@ của CLI; bước mount Drive có thể yêu cầu xác nhận trong trình duy
 Tool dùng [Google Colab CLI](https://github.com/googlecolab/google-colab-cli);
 cần tài khoản Colab đủ điều kiện sử dụng CLI và runtime đã chọn.
 
+## Triển khai và sử dụng với Docker
+
+Để không phải cài đặt môi trường Python hay dependencies trực tiếp trên máy host, bạn có thể chạy toàn bộ hệ thống bằng Docker và Docker Compose:
+
+### 1. Khởi chạy Web Dashboard
+```bash
+# Build và chạy dashboard ngầm
+docker compose up -d
+
+# Xem log server
+docker compose logs -f dashboard
+```
+Truy cập Web Dashboard tại: `http://localhost:6767`
+
+### 2. Đăng nhập Google Colab (lần đầu)
+Nếu máy bạn chưa từng đăng nhập Google Colab CLI:
+```bash
+docker compose run --rm -it cli colab login
+```
+*(Thông tin đăng nhập sẽ được lưu bền vững vào `~/.config/colab-cli` trên máy host).*
+
+### 3. Chạy các lệnh CLI qua Docker
+```bash
+# Xem danh sách session
+docker compose run --rm cli colab-ssh --list
+
+# Tạo session mới
+docker compose run --rm cli colab-ssh https://github.com/OWNER/REPO --gpu T4
+
+# Backup workspace lên Google Drive
+docker compose run --rm cli colab-ssh --backup <tên-session>
+
+# Xem danh sách backup
+docker compose run --rm cli colab-ssh --list-backups
+
+# Phục hồi session từ backup key
+docker compose run --rm cli colab-ssh --restore bk-xxxxxxxx
+
+# Dừng session
+docker compose run --rm cli colab-ssh --stop <tên-session>
+```
+
+### 4. Sử dụng Docker thuần (không qua docker-compose)
+```bash
+# Build image
+docker build -t colab-ssh:latest .
+
+# Chạy Dashboard container
+docker run -d --name colab-ssh-dashboard \
+  -p 6767:6767 \
+  -v ~/.config/colab-cli:/root/.config/colab-cli \
+  -v ~/.config/colab-ssh:/root/.config/colab-ssh \
+  -v ~/.ssh:/root/.ssh \
+  colab-ssh:latest
+```
+
+Các volume được mount đảm bảo:
+- `~/.config/colab-cli`: Lưu trữ OAuth token đăng nhập và trạng thái session.
+- `~/.config/colab-ssh`: Lưu SSH configs, logs, GitHub PAT mapping an toàn.
+- `~/.ssh`: Chia sẻ SSH key (`id_ed25519`) giữa host và container để VS Code Remote-SSH kết nối trực tiếp được.
+
 ## Môi trường lập trình tự động
 
 Mỗi session mới tự cài Codex CLI và Antigravity CLI bằng installer chính thức,
