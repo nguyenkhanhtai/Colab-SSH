@@ -199,13 +199,11 @@ print(json.dumps({"status": "ok", "backups": items}))
 
 def ssh_command_for_session(cli: str, session: str, gpu: str = None) -> list[str]:
     """Return SSH command line arguments targeting the specified session."""
-    config = config_for(session)
-    if config.is_file():
-        return ["ssh", "-F", str(config), alias_for(session)]
     proxy = shlex.join(proxy_command(cli, session, gpu=gpu))
     hosts = Path.home() / '.config/colab-ssh/ssh' / f'{session}.known_hosts'
     return [
         "ssh",
+        "-F", "/dev/null",
         "-o", f"ProxyCommand={proxy}",
         "-o", f"UserKnownHostsFile={hosts}",
         "-o", "StrictHostKeyChecking=accept-new",

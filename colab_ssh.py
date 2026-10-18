@@ -258,7 +258,7 @@ def main(argv=None):
         # Secrets travel over stdin rather than recorded notebook code.
         proxy = shlex.join(proxy_command(cli, session, gpu=args.gpu))
         session_hosts = Path.home() / '.config/colab-ssh/ssh' / f'{session}.known_hosts'
-        ssh = ["ssh", "-o", f"ProxyCommand={proxy}",
+        ssh = ["ssh", "-F", "/dev/null", "-o", f"ProxyCommand={proxy}",
                "-o", f"UserKnownHostsFile={session_hosts}",
                "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
                "-o", "ConnectTimeout=30", f"root@{session}"]

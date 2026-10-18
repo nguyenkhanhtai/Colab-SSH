@@ -1,6 +1,7 @@
 """Generate a VS Code Remote-SSH host for a Colab session."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -33,34 +34,59 @@ def configure(session, cli, identity=None, gpu=None):
     # key is therefore valid only for the current configure/create operation.
     hosts.write_text('')
     hosts.chmod(0o600)
-    proxy = shlex.join(proxy_command(cli, session, key, gpu))
+    proxy_cmd = proxy_command(cli, session, key, gpu)
+    in_docker = Path('/.dockerenv').exists()
+    if in_docker:
+        container = os.environ.get('COLAB_SSH_CONTAINER', 'colab-ssh-dashboard')
+        proxy = shlex.join(['docker', 'exec', '-i', container, *proxy_cmd])
+        key_str = f'~/.ssh/{key.name}' if key.parent == Path.home() / '.ssh' else str(key)
+        hosts_str = f'~/.config/colab-ssh/ssh/{session}.known_hosts'
+    else:
+        proxy = shlex.join(proxy_cmd)
+        key_str = str(key)
+        hosts_str = str(hosts)
     entry = (f'Host {alias}\n'
              f'    HostName {session}\n'
              '    User root\n'
-             f'    IdentityFile "{key}"\n'
+             f'    IdentityFile "{key_str}"\n'
              '    IdentitiesOnly yes\n'
              f'    ProxyCommand {proxy}\n'
-             f'    UserKnownHostsFile "{hosts}"\n'
+             f'    UserKnownHostsFile "{hosts_str}"\n'
              '    StrictHostKeyChecking accept-new\n'
              '    ServerAliveInterval 30\n'
              '    ServerAliveCountMax 3\n')
     config = config_for(session)
     config.write_text(entry)
     config.chmod(0o600)
+    if in_docker and hasattr(os, 'chown'):
+        st = folder.stat()
+        for path in (hosts, config):
+            try:
+                os.chown(path, st.st_uid, st.st_gid)
+            except OSError:
+                pass
     return config, alias
 
 
 def install(config):
     user_config = Path.home() / '.ssh/config'
     user_config.parent.mkdir(exist_ok=True)
-    line = f'Include "{config.parent}/*.conf"'
+    in_docker = Path('/.dockerenv').exists()
+    line = 'Include "~/.config/colab-ssh/ssh/*.conf"' if in_docker else f'Include "{config.parent}/*.conf"'
     legacy = f'Include "{config.parent}/config"'
     text = user_config.read_text() if user_config.exists() else ''
-    lines = [item for item in text.splitlines() if item != legacy]
-    if line not in lines:
+    lines = [item for item in text.splitlines()
+             if item not in (legacy, 'Include "/root/.config/colab-ssh/ssh/*.conf"')]
+    if line not in lines and f'Include "{config.parent}/*.conf"' not in lines:
         lines.insert(0, line)
     user_config.write_text('\n'.join(lines).rstrip() + '\n')
     user_config.chmod(0o600)
+    if in_docker and hasattr(os, 'chown'):
+        st = user_config.parent.stat()
+        try:
+            os.chown(user_config, st.st_uid, st.st_gid)
+        except OSError:
+            pass
     try:
         (config.parent / 'config').unlink()
     except FileNotFoundError:
