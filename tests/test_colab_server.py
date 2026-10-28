@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import colab_server
+import colab_session.server.app as colab_server
 
 
 class CapturingBytesIO(io.BytesIO):
@@ -43,8 +43,8 @@ class DashboardTests(unittest.TestCase):
 
 class ServerAppTests(unittest.TestCase):
     def test_repository_pat_travels_over_stdin(self):
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.subprocess.Popen', return_value=FakeProcess()) as popen:
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=FakeProcess()) as popen:
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             name = app.create({'session': 'alpha', 'gpu': 'L4', 'repository': {
@@ -60,9 +60,9 @@ class ServerAppTests(unittest.TestCase):
     def test_finished_job_missing_from_colab_is_pruned(self):
         process = FakeProcess()
         process.returncode = 0
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.session_manager.sessions', return_value=[]), \
-                patch('colab_server.subprocess.Popen', return_value=process):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.session_manager.sessions', return_value=[]), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=process):
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             app.create({'session': 'deleted-job', 'gpu': 'T4'})
@@ -71,9 +71,9 @@ class ServerAppTests(unittest.TestCase):
 
     def test_stop_terminates_provisioning_and_removes_job(self):
         process = FakeProcess()
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.session_manager.stop') as stop, \
-                patch('colab_server.subprocess.Popen', return_value=process):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.session_manager.stop') as stop, \
+                patch('colab_session.server.app.subprocess.Popen', return_value=process):
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             app.create({'session': 'running-job', 'gpu': 'T4'})
@@ -84,8 +84,8 @@ class ServerAppTests(unittest.TestCase):
 
     def test_job_status_reports_provisioning_stage_and_progress(self):
         process = FakeProcess()
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.subprocess.Popen', return_value=process):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=process):
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             app.create({'session': 'progress-job', 'gpu': 'L4'})
@@ -106,8 +106,8 @@ class ServerAppTests(unittest.TestCase):
             self.assertEqual(status['progress'], 100)
 
     def test_new_job_truncates_log_from_reused_name(self):
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.subprocess.Popen', return_value=FakeProcess()):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=FakeProcess()):
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             log = Path(tmp) / 'same-name.log'
@@ -117,8 +117,8 @@ class ServerAppTests(unittest.TestCase):
 
     def test_drive_authorization_can_resume_provisioning(self):
         process = FakeProcess()
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.subprocess.Popen', return_value=process):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=process):
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             app.create({'session': 'drive-job', 'gpu': 'T4', 'mount_drive': True})
@@ -133,8 +133,8 @@ class ServerAppTests(unittest.TestCase):
             self.assertFalse(app.job_status('drive-job')['awaiting_drive_authorization'])
 
     def test_empty_workspace_has_no_repository_arguments(self):
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.subprocess.Popen', return_value=FakeProcess()) as popen:
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=FakeProcess()) as popen:
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             app.create({'session': 'scratch', 'gpu': 'T4', 'repository': {'enabled': False}})
@@ -144,8 +144,8 @@ class ServerAppTests(unittest.TestCase):
         self.assertNotIn('github.com', ' '.join(command))
 
     def test_create_with_restore_key(self):
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()), \
-                patch('colab_server.subprocess.Popen', return_value=FakeProcess()) as popen:
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()), \
+                patch('colab_session.server.app.subprocess.Popen', return_value=FakeProcess()) as popen:
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             app.create({'session': 'restored', 'gpu': 'T4', 'restore_key': 'bk-1234abcd'})
@@ -155,7 +155,7 @@ class ServerAppTests(unittest.TestCase):
         self.assertNotIn('--skip-drive', command)
 
     def test_create_with_restore_key_and_repo_fails(self):
-        with tempfile.TemporaryDirectory() as tmp, patch('colab_server.session_manager.active_names', return_value=set()):
+        with tempfile.TemporaryDirectory() as tmp, patch('colab_session.server.app.session_manager.active_names', return_value=set()):
             app = colab_server.App('/bin/colab')
             app.logs = Path(tmp)
             with self.assertRaises(ValueError):
@@ -164,8 +164,8 @@ class ServerAppTests(unittest.TestCase):
 
     def test_backup_endpoint(self):
         app = colab_server.App('/bin/colab')
-        with patch('colab_server.backup_manager.backup', return_value={'key': 'bk-1234abcd', 'size_mb': 12.3, 'path': '/p'}) as mock_backup, \
-                patch('colab_server.session_manager.validate_name'):
+        with patch('colab_session.server.app.backup_manager.backup', return_value={'key': 'bk-1234abcd', 'size_mb': 12.3, 'path': '/p'}) as mock_backup, \
+                patch('colab_session.server.app.session_manager.validate_name'):
             res = app.backup('session-1')
         self.assertEqual(res['key'], 'bk-1234abcd')
         mock_backup.assert_called_once_with('/bin/colab', 'session-1')

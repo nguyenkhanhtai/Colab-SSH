@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import setup_ssh
+import colab_session.ssh.config as setup_ssh
 
 
 class SSHConfigTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class SSHConfigTests(unittest.TestCase):
             self.assertIn('HostName colab-second\n', text)
             self.assertIn('colab-second.known_hosts', text)
             self.assertIn("--cli '/path with spaces/colab'", text)
-            self.assertIn('ssh_proxy.py', text)
+            self.assertTrue('proxy.py' in text or 'ssh_proxy.py' in text)
             self.assertIn('StrictHostKeyChecking accept-new', text)
 
     def test_reconcile_preserves_new_config_during_provisioning(self):

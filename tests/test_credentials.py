@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from credentials import read_auth, read_pat, save_pat_mapping
+from colab_session.auth.credentials import read_auth, read_pat, save_pat_mapping
 
 
 class CredentialTests(unittest.TestCase):

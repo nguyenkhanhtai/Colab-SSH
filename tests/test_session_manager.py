@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import session_manager
+import colab_session.session.manager as session_manager
 
 
 class SessionManagerTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class SessionManagerTests(unittest.TestCase):
                           'token': 'secret', 'endpoint': 'private'},
                 'stopped': {'running': False, 'token': 'also-secret'},
             }))
-            with patch('session_manager.reconcile_ssh'), patch('session_manager.config_for') as config:
+            with patch('colab_session.session.manager.reconcile_ssh'), patch('colab_session.session.manager.config_for') as config:
                 config.return_value.is_file.return_value = True
                 rows = session_manager.sessions(state)
         self.assertEqual([row['name'] for row in rows], ['alpha'])
@@ -32,21 +32,21 @@ class SessionManagerTests(unittest.TestCase):
                 'mounting': {'running': 'automation(drivemount)'},
                 'finished': {'running': False},
             }))
-            with patch('session_manager.live_names', return_value=set()), \
-                    patch('session_manager.reconcile_ssh') as reconcile:
+            with patch('colab_session.session.manager.ColabCliClient.live_names', return_value=set()), \
+                    patch('colab_session.session.manager.reconcile_ssh') as reconcile:
                 session_manager.reconcile(state, cli='/bin/colab')
         reconcile.assert_called_once_with({'mounting'})
 
     def test_stop_always_removes_ssh_state(self):
-        with patch('session_manager.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'colab')), \
-                patch('session_manager.remove_ssh') as remove:
+        with patch('colab_session.session.manager.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'colab')), \
+                patch('colab_session.session.manager.remove_ssh') as remove:
             with self.assertRaises(subprocess.CalledProcessError):
                 session_manager.stop('/bin/colab', 'alpha')
         remove.assert_called_once_with('alpha')
 
     def test_notebook_url_uses_colab_cli(self):
         completed = subprocess.CompletedProcess([], 0, stdout='https://example.test/notebook\n')
-        with patch('session_manager.subprocess.run', return_value=completed) as run:
+        with patch('colab_session.session.manager.subprocess.run', return_value=completed) as run:
             url = session_manager.notebook_url('/bin/colab', 'alpha')
         self.assertEqual(url, 'https://example.test/notebook')
         run.assert_called_once_with(['/bin/colab', 'url', '-s', 'alpha'], check=True,

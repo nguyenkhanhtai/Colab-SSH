@@ -5,27 +5,37 @@ import re
 import secrets
 import shlex
 import subprocess
+from typing import Dict, List, Optional
 
-from setup_ssh import alias_for, config_for
-from ssh_proxy import command as proxy_command
-
-
-def generate_key() -> str:
-    """Generate a random unique backup key like 'bk-a1b2c3d4'."""
-    return f"bk-{secrets.token_hex(4)}"
+from colab_session.ssh.config import alias_for, config_for
+from colab_session.ssh.proxy import command as proxy_command
 
 
-def validate_key(key: str) -> str:
-    """Validate that the backup key conforms to safe identifier rules."""
-    key = str(key or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", key):
-        raise ValueError("Invalid backup key: use letters, numbers, hyphens, and underscores")
-    return key
+class BackupKeyManager:
+    """Generates and validates unique backup keys (Single Responsibility: Key management)."""
+
+    KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+
+    @classmethod
+    def generate(cls) -> str:
+        """Generate a random unique backup key like 'bk-a1b2c3d4'."""
+        return f"bk-{secrets.token_hex(4)}"
+
+    @classmethod
+    def validate(cls, key: str) -> str:
+        """Validate that the backup key conforms to safe identifier rules."""
+        cleaned = str(key or "").strip()
+        if not cls.KEY_PATTERN.fullmatch(cleaned):
+            raise ValueError("Invalid backup key: use letters, numbers, hyphens, and underscores")
+        return cleaned
 
 
-def backup_remote_code(session_name: str, key: str) -> str:
-    """Python code to be executed remotely on the Colab VM to archive workspace to Drive."""
-    return f"""import json
+class BackupScriptGenerator:
+    """Generates Python scripts for remote execution on Colab VM (Single Responsibility: Script generation)."""
+
+    @staticmethod
+    def backup_script(session_name: str, key: str) -> str:
+        return f"""import json
 import os
 import subprocess
 from datetime import datetime, timezone
@@ -108,10 +118,9 @@ meta_path.write_text(json.dumps(metadata, indent=2))
 print(json.dumps({{"status": "ok", "key": {key!r}, "size_mb": size_mb, "path": str(archive_path)}}))
 """
 
-
-def restore_remote_code(key: str) -> str:
-    """Python code to be executed remotely on the Colab VM to extract backup archive from Drive."""
-    return f"""import json
+    @staticmethod
+    def restore_script(key: str) -> str:
+        return f"""import json
 import os
 import subprocess
 from pathlib import Path
@@ -163,10 +172,9 @@ else:
 print(json.dumps({{"status": "ok", "key": {key!r}, "workspace": str(workspace)}}))
 """
 
-
-def list_backups_remote_code() -> str:
-    """Python code to query all backup records stored in Google Drive."""
-    return """import json
+    @staticmethod
+    def list_backups_script() -> str:
+        return """import json
 from pathlib import Path
 
 drive_candidates = list(Path('/content').glob('**/MyDrive'))
@@ -197,7 +205,7 @@ print(json.dumps({"status": "ok", "backups": items}))
 """
 
 
-def ssh_command_for_session(cli: str, session: str, gpu: str = None) -> list[str]:
+def ssh_command_for_session(cli: str, session: str, gpu: Optional[str] = None) -> List[str]:
     """Return SSH command line arguments targeting the specified session."""
     proxy = shlex.join(proxy_command(cli, session, gpu=gpu))
     hosts = Path.home() / '.config/colab-ssh/ssh' / f'{session}.known_hosts'
@@ -213,59 +221,99 @@ def ssh_command_for_session(cli: str, session: str, gpu: str = None) -> list[str
     ]
 
 
-def backup(cli: str, session: str, key: str = None) -> dict:
-    """Backup a running session workspace to Google Drive."""
-    key = validate_key(key or generate_key())
-    ssh = ssh_command_for_session(cli, session)
-    code = backup_remote_code(session, key)
-    try:
-        res = subprocess.run(
-            [*ssh, "python3 -c " + shlex.quote(code)],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        err = (exc.stderr or exc.stdout or str(exc)).strip()
-        lines = [ln.strip() for ln in err.splitlines() if ln.strip()]
-        last_err = lines[-1] if lines else str(exc)
-        if "Google Drive is not mounted" in err:
-            raise RuntimeError("Google Drive is not mounted in this session. Mount Drive before backing up.") from exc
-        raise RuntimeError(f"Backup failed on remote VM: {last_err}") from exc
+class DriveBackupService:
+    """Executes backup and list operations on running Colab sessions."""
 
-    lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
-    for line in reversed(lines):
+    def __init__(self, key_manager: Optional[BackupKeyManager] = None, script_generator: Optional[BackupScriptGenerator] = None):
+        self.key_manager = key_manager or BackupKeyManager()
+        self.script_generator = script_generator or BackupScriptGenerator()
+
+    def build_ssh_command(self, cli: str, session: str, gpu: Optional[str] = None) -> List[str]:
+        return ssh_command_for_session(cli, session, gpu=gpu)
+
+    def backup(self, cli: str, session: str, key: Optional[str] = None) -> Dict:
+        """Backup a running session workspace to Google Drive."""
+        key = self.key_manager.validate(key or self.key_manager.generate())
+        ssh = self.build_ssh_command(cli, session)
+        code = self.script_generator.backup_script(session, key)
         try:
-            data = json.loads(line)
-            if data.get("status") == "ok":
-                return data
-        except json.JSONDecodeError:
-            continue
-    raise RuntimeError(f"Unexpected backup response from remote session: {res.stdout}")
+            res = subprocess.run(
+                [*ssh, "python3 -c " + shlex.quote(code)],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or exc.stdout or str(exc)).strip()
+            lines = [ln.strip() for ln in err.splitlines() if ln.strip()]
+            last_err = lines[-1] if lines else str(exc)
+            if "Google Drive is not mounted" in err:
+                raise RuntimeError("Google Drive is not mounted in this session. Mount Drive before backing up.") from exc
+            raise RuntimeError(f"Backup failed on remote VM: {last_err}") from exc
+
+        lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+        for line in reversed(lines):
+            try:
+                data = json.loads(line)
+                if data.get("status") == "ok":
+                    return data
+            except json.JSONDecodeError:
+                continue
+        raise RuntimeError(f"Unexpected backup response from remote session: {res.stdout}")
+
+    def list_backups(self, cli: str, session: str) -> List[Dict]:
+        """Query available backups from Google Drive via an active session."""
+        ssh = self.build_ssh_command(cli, session)
+        code = self.script_generator.list_backups_script()
+        try:
+            res = subprocess.run(
+                [*ssh, "python3 -c " + shlex.quote(code)],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise RuntimeError(f"Failed to list backups: {err}") from exc
+
+        lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+        for line in reversed(lines):
+            try:
+                data = json.loads(line)
+                if data.get("status") == "ok":
+                    return data.get("backups", [])
+            except json.JSONDecodeError:
+                continue
+        return []
+
+
+_default_service = DriveBackupService()
+
+
+def generate_key() -> str:
+    return BackupKeyManager.generate()
+
+
+def validate_key(key: str) -> str:
+    return BackupKeyManager.validate(key)
+
+
+def backup_remote_code(session_name: str, key: str) -> str:
+    return BackupScriptGenerator.backup_script(session_name, key)
+
+
+def restore_remote_code(key: str) -> str:
+    return BackupScriptGenerator.restore_script(key)
+
+
+def list_backups_remote_code() -> str:
+    return BackupScriptGenerator.list_backups_script()
+
+
+def backup(cli: str, session: str, key: Optional[str] = None) -> dict:
+    return _default_service.backup(cli, session, key=key)
 
 
 def list_backups(cli: str, session: str) -> list[dict]:
-    """Query available backups from Google Drive via an active session."""
-    ssh = ssh_command_for_session(cli, session)
-    code = list_backups_remote_code()
-    try:
-        res = subprocess.run(
-            [*ssh, "python3 -c " + shlex.quote(code)],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        err = (exc.stderr or exc.stdout or str(exc)).strip()
-        raise RuntimeError(f"Failed to list backups: {err}") from exc
-
-    lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
-    for line in reversed(lines):
-        try:
-            data = json.loads(line)
-            if data.get("status") == "ok":
-                return data.get("backups", [])
-        except json.JSONDecodeError:
-            continue
-    return []
+    return _default_service.list_backups(cli, session)
 

@@ -21,7 +21,7 @@ COPY . /app
 
 # Install project and dependencies, then patch colab-cli
 RUN pip install --no-cache-dir -e . && \
-    python3 -c "import colab_ssh; colab_ssh.patch_colab_cli()" && \
+    python3 -c "from colab_session.cli.main import patch_colab_cli; patch_colab_cli()" && \
     chmod +x /app/entrypoint.sh
 
 # Expose web dashboard port

@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from ssh_proxy import validate
+from colab_session.ssh.proxy import validate
 
 
 class ProxyTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class ProxyTests(unittest.TestCase):
             home = Path(tmp)
             state = home / '.config/colab-cli/sessions.json'
             state.parent.mkdir(parents=True)
-            with patch('ssh_proxy.Path.home', return_value=home):
+            with patch('colab_session.ssh.proxy.Path.home', return_value=home):
                 with self.assertRaisesRegex(ValueError, 'stopped'):
                     validate('session')
                 state.write_text(json.dumps({'session': {'variant': 'DEFAULT', 'accelerator': 'NONE'}}))

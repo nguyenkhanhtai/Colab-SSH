@@ -4,7 +4,7 @@ import subprocess
 import unittest
 from unittest.mock import patch, MagicMock
 
-import backup_manager
+import colab_session.storage.backup as backup_manager
 
 
 class BackupManagerTests(unittest.TestCase):
@@ -40,8 +40,8 @@ class BackupManagerTests(unittest.TestCase):
         compile(code_list, "<string>", "exec")
         self.assertIn("MyDrive", code_list)
 
-    @patch("backup_manager.ssh_command_for_session", return_value=["ssh", "root@session-1"])
-    @patch("backup_manager.subprocess.run")
+    @patch("colab_session.storage.backup.ssh_command_for_session", return_value=["ssh", "root@session-1"])
+    @patch("colab_session.storage.backup.subprocess.run")
     def test_backup_success(self, run, ssh_cmd):
         run.return_value = MagicMock(
             return_value=0,
@@ -58,8 +58,8 @@ class BackupManagerTests(unittest.TestCase):
         run.assert_called_once()
         self.assertEqual(run.call_args[0][0][0], "ssh")
 
-    @patch("backup_manager.ssh_command_for_session", return_value=["ssh", "root@session-1"])
-    @patch("backup_manager.subprocess.run")
+    @patch("colab_session.storage.backup.ssh_command_for_session", return_value=["ssh", "root@session-1"])
+    @patch("colab_session.storage.backup.subprocess.run")
     def test_backup_drive_not_mounted_fails_clearly(self, run, ssh_cmd):
         run.side_effect = subprocess.CalledProcessError(
             1, "ssh", stderr="RuntimeError: Google Drive is not mounted in this session."
@@ -68,8 +68,8 @@ class BackupManagerTests(unittest.TestCase):
             backup_manager.backup("/bin/colab", "session-1", key="bk-1234abcd")
         self.assertIn("Google Drive is not mounted", str(ctx.exception))
 
-    @patch("backup_manager.ssh_command_for_session", return_value=["ssh", "root@session-1"])
-    @patch("backup_manager.subprocess.run")
+    @patch("colab_session.storage.backup.ssh_command_for_session", return_value=["ssh", "root@session-1"])
+    @patch("colab_session.storage.backup.subprocess.run")
     def test_list_backups_success(self, run, ssh_cmd):
         items = [{"key": "bk-1", "size_mb": 10}, {"key": "bk-2", "size_mb": 20}]
         run.return_value = MagicMock(

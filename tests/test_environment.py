@@ -6,7 +6,7 @@ import tarfile
 import unittest
 from unittest.mock import patch
 
-import setup_environment as env
+import colab_session.env.environment as env
 
 
 class EnvironmentTests(unittest.TestCase):
@@ -61,7 +61,7 @@ class EnvironmentTests(unittest.TestCase):
             (home / '.gemini/GEMINI.md').write_text('gemini context')
             (home / '.gemini/antigravity/conversations/chat.pb').write_text('cli chat')
             (home / '.gemini/antigravity-ide/conversations/chat.pb').write_text('ide chat')
-            with patch('setup_environment.subprocess.run') as run:
+            with patch('colab_session.env.environment.subprocess.run') as run:
                 copied = env.sync_context(['ssh', 'root@test'], home)
             archive = run.call_args.kwargs['input']
             with tarfile.open(fileobj=BytesIO(archive), mode='r:gz') as bundle:

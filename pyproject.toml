@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "colab-session"
-version = "0.1.0"
-description = "Create a Colab session with optional GitHub repository and Google Drive"
+version = "0.2.0"
+description = "Create Colab GPU sessions with SSH, Drive backups, and remote job execution"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,20 +14,23 @@ dependencies = [
 ]
 
 [project.scripts]
-colab-ssh = "colab_ssh:main"
-colab-ssh-server = "colab_server:main"
+colab-ssh = "colab_session.cli.main:main"
+colab-ssh-server = "colab_session.cli.server:main"
+colab-mcp = "colab_session.mcp.server:main"
 
 [tool.setuptools]
-py-modules = [
-    "colab_ssh",
-    "colab_server",
-    "session_manager",
-    "credentials",
-    "setup_environment",
-    "setup_gpu",
-    "setup_ssh",
-    "ssh_proxy",
-    "backup_manager",
+packages = [
+    "colab_session",
+    "colab_session.auth",
+    "colab_session.ssh",
+    "colab_session.hardware",
+    "colab_session.env",
+    "colab_session.storage",
+    "colab_session.session",
+    "colab_session.jobs",
+    "colab_session.server",
+    "colab_session.cli",
+    "colab_session.mcp",
 ]
 
 [tool.uv]
