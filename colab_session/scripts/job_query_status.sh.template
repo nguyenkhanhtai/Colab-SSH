@@ -1,0 +1,20 @@
+STATUS_FILE="/root/.colab-jobs/{{JOB_ID}}.status"
+PID_FILE="/root/.colab-jobs/{{JOB_ID}}.pid"
+META_FILE="/root/.colab-jobs/{{JOB_ID}}.json"
+
+if [ -f "$META_FILE" ]; then
+    cat "$META_FILE"
+else
+    echo '{"id": "{{JOB_ID}}", "status": "unknown"}'
+fi
+echo "---STATUS---"
+if [ -f "$STATUS_FILE" ]; then
+    cat "$STATUS_FILE"
+fi
+echo "---PID---"
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    echo "$PID"
+    kill -0 "$PID" 2>/dev/null && echo "ALIVE" || echo "DEAD"
+fi
+

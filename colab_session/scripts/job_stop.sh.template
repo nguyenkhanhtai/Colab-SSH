@@ -1,0 +1,9 @@
+PID_FILE="/root/.colab-jobs/{{JOB_ID}}.pid"
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    kill -TERM "$PID" 2>/dev/null || kill -KILL "$PID" 2>/dev/null
+    echo "STOPPED"
+else
+    echo "NO_PID"
+fi
+

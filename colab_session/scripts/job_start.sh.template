@@ -1,0 +1,11 @@
+mkdir -p /root/.colab-jobs
+cat <<'EOF' > {{WRAPPER_PATH}}
+{{WRAPPER_CONTENT}}
+EOF
+chmod +x {{WRAPPER_PATH}}
+cat <<'EOF' > {{META_PATH}}
+{{META_JSON}}
+EOF
+nohup {{WRAPPER_PATH}} > /root/.colab-jobs/{{JOB_ID}}.log 2>&1 &
+echo $! > /root/.colab-jobs/{{JOB_ID}}.pid
+

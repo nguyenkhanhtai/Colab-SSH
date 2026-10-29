@@ -386,20 +386,36 @@ Dự án tích hợp sẵn MCP stdio server tuân thủ chuẩn JSON-RPC 2.0, gi
 
 ### Cấu hình MCP Client
 
-Thêm cấu hình sau vào file thiết lập MCP của bạn (ví dụ: `claude_desktop_config.json` hoặc Cursor MCP settings):
+#### Cách 1: Khởi chạy trực tiếp từ GitHub qua `uvx` (Khuyên dùng - Không cần cài đặt trước)
+Áp dụng cho mọi máy tính (Antigravity, Claude Desktop, Cursor, Windsurf...). Chỉ cần máy có `uv`, MCP Client sẽ tự động kéo bản mới nhất từ GitHub về chạy:
 
 ```json
 {
   "mcpServers": {
     "colab-ssh": {
-      "command": "uv",
-      "args": ["run", "--directory", "/đường/dẫn/Colab-SSH", "colab-mcp"]
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/nguyenkhanhtai/Colab-SSH.git",
+        "colab-mcp"
+      ]
     }
   }
 }
 ```
 
-*(Hoặc nếu đã cài đặt toàn cục: `"command": "colab-mcp"`)*.
+#### Cách 2: Sử dụng package cài đặt cục bộ (Local / Editable)
+Nếu bạn đã cài đặt package trên máy cá nhân (`pip install -e .`):
+
+```json
+{
+  "mcpServers": {
+    "colab-ssh": {
+      "command": "colab-mcp"
+    }
+  }
+}
+```
 
 ### Các MCP Tools có sẵn:
 

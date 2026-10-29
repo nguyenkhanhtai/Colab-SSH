@@ -263,45 +263,28 @@ class RemoteJobRunner:
             log_file=resolved_log,
         )
 
-        setup_and_start = f"""
-mkdir -p /root/.colab-jobs
-cat <<'EOF' > {shlex.quote(remote_wrapper_path)}
-{wrapper}
-EOF
-chmod +x {shlex.quote(remote_wrapper_path)}
-cat <<'EOF' > {shlex.quote(meta_path)}
-{json.dumps(job.to_dict(), indent=2)}
-EOF
-nohup {shlex.quote(remote_wrapper_path)} > /root/.colab-jobs/{job_id}.log 2>&1 &
-echo $! > /root/.colab-jobs/{job_id}.pid
-"""
+        setup_and_start = render_template(
+            "scripts",
+            "job_start.sh.template",
+            context={
+                "WRAPPER_PATH": shlex.quote(remote_wrapper_path),
+                "WRAPPER_CONTENT": wrapper,
+                "META_PATH": shlex.quote(meta_path),
+                "META_JSON": json.dumps(job.to_dict(), indent=2),
+                "JOB_ID": job_id,
+            },
+        )
         subprocess.run([*ssh, "bash"], input=setup_and_start, text=True, check=True)
         return job
 
     def get_job_status(self, session: str, job_id: str) -> Job:
         """Query the remote job status and update its exit code / status."""
         ssh = self._ssh_command(session)
-        query_script = f"""
-STATUS_FILE="/root/.colab-jobs/{job_id}.status"
-PID_FILE="/root/.colab-jobs/{job_id}.pid"
-META_FILE="/root/.colab-jobs/{job_id}.json"
-
-if [ -f "$META_FILE" ]; then
-    cat "$META_FILE"
-else
-    echo '{{"id": "{job_id}", "status": "unknown"}}'
-fi
-echo "---STATUS---"
-if [ -f "$STATUS_FILE" ]; then
-    cat "$STATUS_FILE"
-fi
-echo "---PID---"
-if [ -f "$PID_FILE" ]; then
-    PID=$(cat "$PID_FILE")
-    echo "$PID"
-    kill -0 "$PID" 2>/dev/null && echo "ALIVE" || echo "DEAD"
-fi
-"""
+        query_script = render_template(
+            "scripts",
+            "job_query_status.sh.template",
+            context={"JOB_ID": job_id},
+        )
         res = subprocess.run([*ssh, "bash"], input=query_script, capture_output=True, text=True, check=True)
         output = res.stdout
 
@@ -349,29 +332,18 @@ fi
     def stop_job(self, session: str, job_id: str) -> bool:
         """Terminate a running remote job process."""
         ssh = self._ssh_command(session)
-        cmd = f"""
-PID_FILE="/root/.colab-jobs/{shlex.quote(job_id)}.pid"
-if [ -f "$PID_FILE" ]; then
-    PID=$(cat "$PID_FILE")
-    kill -TERM "$PID" 2>/dev/null || kill -KILL "$PID" 2>/dev/null
-    echo "STOPPED"
-else
-    echo "NO_PID"
-fi
-"""
+        cmd = render_template(
+            "scripts",
+            "job_stop.sh.template",
+            context={"JOB_ID": job_id},
+        )
         res = subprocess.run([*ssh, "bash"], input=cmd, capture_output=True, text=True, check=True)
         return "STOPPED" in res.stdout
 
     def list_jobs(self, session: str) -> List[Dict[str, Any]]:
         """List all registered jobs on the remote session."""
         ssh = self._ssh_command(session)
-        cmd = """
-for f in /root/.colab-jobs/*.json; do
-    [ -e "$f" ] || continue
-    cat "$f"
-    echo "---SEPARATOR---"
-done
-"""
+        cmd = read_resource("scripts", "job_list.sh")
         res = subprocess.run([*ssh, "bash"], input=cmd, capture_output=True, text=True, check=True)
         items = []
         for part in res.stdout.split("---SEPARATOR---"):

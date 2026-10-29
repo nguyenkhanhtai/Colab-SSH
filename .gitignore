@@ -9,3 +9,6 @@ auth.json
 outputs/
 logs/
 downloads/
+build/
+dist/
+*.egg-info/

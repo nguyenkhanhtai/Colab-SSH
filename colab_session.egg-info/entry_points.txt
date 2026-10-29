@@ -1,4 +1,0 @@
-[console_scripts]
-colab-mcp = colab_session.mcp.server:main
-colab-ssh = colab_session.cli.main:main
-colab-ssh-server = colab_session.cli.server:main

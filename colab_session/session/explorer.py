@@ -1,5 +1,4 @@
 """Remote filesystem and directory tree inspector for Colab sessions."""
-import base64
 import json
 from pathlib import Path
 import shlex
@@ -48,16 +47,17 @@ class RemoteDirectoryExplorer:
         hidden_flag = "1" if show_hidden else "0"
 
         ssh = self._ssh_command(session)
-        b64_script = base64.b64encode(_REMOTE_TREE_SCRIPT.encode("utf-8")).decode("ascii")
-        cmd = f"python3 -c \"import base64; exec(base64.b64decode('{b64_script}'))\" {shlex.quote(path)} {depth} {limit} {hidden_flag}"
+        cmd = f"python3 - {shlex.quote(path)} {depth} {limit} {hidden_flag}"
 
         try:
-            res = subprocess.run([*ssh, cmd], capture_output=True, text=True)
+            res = subprocess.run([*ssh, cmd], input=_REMOTE_TREE_SCRIPT, capture_output=True, text=True)
         except subprocess.SubprocessError as exc:
             raise RemoteTreeError(f"Failed to execute SSH command on session '{session}': {exc}") from exc
 
         if res.returncode != 0:
             err_msg = (res.stderr or "").strip() or f"Process exited with status {res.returncode}"
+            if "has stopped or is missing" in err_msg or "Connection closed" in err_msg:
+                raise RemoteTreeError(f"Session '{session}' is not reachable or has stopped. Please start a session first.")
             raise RemoteTreeError(f"Remote tree inspection failed on session '{session}': {err_msg}")
 
         raw_output = res.stdout.strip()

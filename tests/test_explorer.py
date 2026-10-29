@@ -90,8 +90,9 @@ class TestRemoteDirectoryExplorer(unittest.TestCase):
         self.assertEqual(result["path"], "/content")
         mock_run.assert_called_once()
         cmd_arg = mock_run.call_args[0][0][-1]
-        self.assertIn("base64", cmd_arg)
+        self.assertIn("python3 -", cmd_arg)
         self.assertIn("/content 3 10 0", cmd_arg)
+        self.assertIn("scan_dir", mock_run.call_args[1]["input"])
 
     @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
     @patch("colab_session.jobs.manager.JobManager.tree")
