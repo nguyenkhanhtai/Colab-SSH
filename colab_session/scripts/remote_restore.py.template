@@ -1,0 +1,52 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+
+# 1. Locate Google Drive MyDrive
+drive_candidates = list(Path('/content').glob('**/MyDrive'))
+if not drive_candidates:
+    raise RuntimeError("Google Drive is not mounted. Cannot access backup.")
+
+my_drive = drive_candidates[0]
+candidate_dirs = [
+    my_drive / 'Colab-Backups',
+    my_drive / 'colab-backups',
+    my_drive / 'colab_backups',
+]
+backups_dir = next((p for p in candidate_dirs if (p / f"{{KEY}}.tar.gz").is_file()), my_drive / 'Colab-Backups')
+archive_path = backups_dir / f"{{KEY}}.tar.gz"
+meta_path = backups_dir / f"{{KEY}}.json"
+
+if not archive_path.is_file():
+    raise RuntimeError(f"Backup key '{{KEY}}' not found in Google Drive ({archive_path}).")
+
+meta = {}
+if meta_path.is_file():
+    try:
+        meta = json.loads(meta_path.read_text())
+    except Exception:
+        pass
+
+# 2. Extract into workspace
+workspace_name = meta.get("workspace_name")
+if workspace_name:
+    workspace = Path('/content') / workspace_name
+    workspace.mkdir(parents=True, exist_ok=True)
+    tar_cmd = ["tar", "--no-same-owner", "-xzf", str(archive_path), "-C", str(workspace)]
+    res = subprocess.run(tar_cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"tar restore failed: {res.stderr}")
+    mount_link = workspace / 'drive'
+    if not mount_link.exists() and not mount_link.is_symlink():
+        mount_dir = my_drive.parent
+        mount_link.symlink_to(mount_dir)
+else:
+    workspace = Path('/content')
+    tar_cmd = ["tar", "--no-same-owner", "--exclude=drive", "-xzf", str(archive_path), "-C", str(workspace)]
+    res = subprocess.run(tar_cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"tar restore failed: {res.stderr}")
+
+print(json.dumps({"status": "ok", "key": {{KEY_REPR}}, "workspace": str(workspace)}))
+

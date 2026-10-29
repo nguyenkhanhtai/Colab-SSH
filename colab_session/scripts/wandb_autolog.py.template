@@ -1,0 +1,114 @@
+# Auto-generated zero-code Weights & Biases wrapper
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+DOWNLOAD_FILES = {{DOWNLOAD_FILES}}
+
+KV_PATTERN = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_\-\/]*)\s*[:=]\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\b")
+KEYWORD_PATTERN = re.compile(r"\b(epoch|step|loss|acc|accuracy|val_loss|val_acc|f1|precision|recall|lr)\s+([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\b", re.I)
+EPOCH_PATTERN = re.compile(r"\bepoch\s*[:#]?\s*(\d+)(?:/(\d+))?\b", re.I)
+
+
+def parse_metrics(line):
+    text = line.strip()
+    if not text:
+        return {}
+    metrics = {}
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return {str(k).lower(): float(v) for k, v in data.items() if isinstance(v, (int, float))}
+        except Exception:
+            pass
+    for m in KV_PATTERN.finditer(text):
+        try:
+            metrics[m.group(1).lower().replace("-", "_")] = float(m.group(2))
+        except ValueError:
+            pass
+    for m in KEYWORD_PATTERN.finditer(text):
+        try:
+            metrics[m.group(1).lower()] = float(m.group(2))
+        except ValueError:
+            pass
+    m_ep = EPOCH_PATTERN.search(text)
+    if m_ep:
+        metrics["epoch"] = float(m_ep.group(1))
+    return metrics
+
+
+# 1. Initialize Weights & Biases
+wandb_run = None
+try:
+    import wandb
+    project = os.environ.get("WANDB_PROJECT", "colab-experiments")
+    name = os.environ.get("WANDB_NAME")
+    tags = [t.strip() for t in os.environ.get("WANDB_TAGS", "").split(",") if t.strip()] or None
+    raw_cfg = os.environ.get("WANDB_CONFIG")
+    cfg = json.loads(raw_cfg) if raw_cfg else {}
+    wandb_run = wandb.init(
+        project=project,
+        name=name,
+        tags=tags,
+        config=cfg,
+        sync_tensorboard=True,
+        resume="allow"
+    )
+    print(f"[AutoLog] Tracking active with Weights & Biases: {getattr(wandb_run, 'url', '')}", flush=True)
+except Exception as exc:
+    print(f"[AutoLog] Notice: Running without W&B online sync ({exc})", flush=True)
+
+# 2. Run user command
+cmd = sys.argv[1:]
+if not cmd:
+    sys.exit(0)
+
+full_command = " ".join(cmd)
+proc = subprocess.Popen(
+    full_command,
+    shell=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+)
+
+current_step = 0
+for line in proc.stdout:
+    sys.stdout.write(line)
+    sys.stdout.flush()
+    if wandb_run:
+        m = parse_metrics(line)
+        if m:
+            step = int(m.pop("epoch")) if "epoch" in m else current_step
+            current_step += 1
+            wandb.log(m, step=step)
+
+proc.wait()
+exit_code = proc.returncode
+
+# 3. Log Artifacts
+if wandb_run:
+    try:
+        found_artifacts = []
+        for pat in DOWNLOAD_FILES:
+            for match in glob.glob(pat, recursive=True):
+                if os.path.isfile(match):
+                    found_artifacts.append(match)
+        if found_artifacts:
+            art = wandb.Artifact(f"{wandb_run.name or 'run'}-artifacts", type="model")
+            for f in found_artifacts:
+                art.add_file(f)
+            wandb.log_artifact(art)
+            print(f"[AutoLog] Uploaded {len(found_artifacts)} artifact(s) to W&B", flush=True)
+    except Exception as exc:
+        print(f"[AutoLog] Notice: Could not upload artifacts to W&B ({exc})", flush=True)
+    finally:
+        wandb.finish()
+
+sys.exit(exit_code)
+

@@ -31,6 +31,13 @@ packages = [
     "colab_session.server",
     "colab_session.cli",
     "colab_session.mcp",
+    "colab_session.tracking",
+]
+
+[tool.setuptools.package-data]
+colab_session = [
+    "server/templates/*",
+    "scripts/*",
 ]
 
 [tool.uv]

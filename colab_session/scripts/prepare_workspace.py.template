@@ -1,0 +1,9 @@
+from pathlib import Path
+
+workspace = Path({{REMOTE}})
+workspace.mkdir(parents=True, exist_ok=True)
+mount = workspace / {{DRIVE_DIR}}
+if mount.exists() or mount.is_symlink():
+    raise RuntimeError(f"Drive path already exists: {mount}; choose another --drive-dir")
+mount.mkdir()
+

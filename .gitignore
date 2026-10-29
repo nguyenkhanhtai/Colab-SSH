@@ -6,3 +6,6 @@ __pycache__/
 .local/
 *.pat
 auth.json
+outputs/
+logs/
+downloads/

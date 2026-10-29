@@ -22,7 +22,7 @@ from colab_session.env.environment import apply as apply_environment, load_profi
 from colab_session.hardware.gpu import remote_code as gpu_setup_code
 from colab_session.jobs.config import JobConfig, JobConfigDispatcher
 from colab_session.jobs.manager import JobManager
-from colab_session.jobs.models import JobStatus
+from colab_session.jobs.models import JobStatus, format_job_manifest, resolve_log_file, validate_job_requirements
 from colab_session.session.provisioner import (
     SessionConfig,
     SessionProvisioner,
@@ -112,21 +112,25 @@ class JobCommandHandler:
 
         submit_p = job_subs.add_parser("submit", help="Submit a job to run remotely")
         submit_p.add_argument("command", nargs="?", default="", help="Command to execute")
-        submit_p.add_argument("--session", "-s", required=True, help="Target Colab session")
+        submit_p.add_argument("--config", "-c", nargs="?", const="colab-job.json", help="Execute job from configuration file (default: colab-job.json)")
+        submit_p.add_argument("--session", "-s", help="Target Colab session (optional if using --config)")
         submit_p.add_argument("--script", help="Path to local script to upload and run")
         submit_p.add_argument("--sync-dir", help="Local directory to upload before running")
         submit_p.add_argument("--cwd", default="/content", help="Working directory on remote VM")
         submit_p.add_argument("--download", "-dl", nargs="+", metavar="FILE", help="Remote files or patterns to download upon completion")
         submit_p.add_argument("--download-dir", default="./downloads", help="Local directory for downloaded files")
+        submit_p.add_argument("--log-file", help="Path to local file where terminal output will be saved")
         submit_p.add_argument("--detached", "-d", action="store_true", default=True, help="Run in background (default: true)")
         submit_p.add_argument("--foreground", "-f", dest="detached", action="store_false", help="Run in foreground and stream output")
 
         run_p = job_subs.add_parser("run", help="Run a command directly on a session in foreground")
-        run_p.add_argument("command", help="Command to execute")
-        run_p.add_argument("--session", "-s", required=True, help="Target Colab session")
+        run_p.add_argument("command", nargs="?", default="", help="Command to execute")
+        run_p.add_argument("--config", "-c", nargs="?", const="colab-job.json", help="Execute job from configuration file (default: colab-job.json)")
+        run_p.add_argument("--session", "-s", help="Target Colab session (optional if using --config)")
         run_p.add_argument("--cwd", default="/content", help="Working directory on remote VM")
         run_p.add_argument("--download", "-dl", nargs="+", metavar="FILE", help="Remote files or patterns to download upon completion")
         run_p.add_argument("--download-dir", default="./downloads", help="Local directory for downloaded files")
+        run_p.add_argument("--log-file", help="Path to local file where terminal output will be saved")
 
         status_p = job_subs.add_parser("status", help="Check status of a remote job")
         status_p.add_argument("job_id", help="Job ID")
@@ -158,10 +162,23 @@ class JobCommandHandler:
         init_p = job_subs.add_parser("init-config", help="Generate a sample job configuration JSON file")
         init_p.add_argument("path", nargs="?", default="colab-job.json", help="Path to create config (default: colab-job.json)")
 
-        run_cfg_p = job_subs.add_parser("run-config", help="Run a job defined in a JSON configuration file")
+        run_cfg_p = job_subs.add_parser("run-config", aliases=["config"], help="Run a job defined in a JSON/YAML configuration file")
         run_cfg_p.add_argument("config_file", nargs="?", default="colab-job.json", help="Path to job configuration file (default: colab-job.json)")
         run_cfg_p.add_argument("--gpu", help="Override required GPU (T4, L4, G4, A100, H100)")
         run_cfg_p.add_argument("--session", "-s", help="Override target session name")
+        run_cfg_p.add_argument("--log-file", help="Override path to local log file")
+        run_cfg_p.add_argument("--detached", "-d", dest="detached", action="store_true", default=None, help="Run job in background")
+        run_cfg_p.add_argument("--foreground", "-f", dest="detached", action="store_false", help="Run job in foreground")
+        run_cfg_p.add_argument("--download", "-dl", nargs="+", metavar="FILE", help="Override files/patterns to download")
+        run_cfg_p.add_argument("--download-dir", help="Override download directory")
+
+        tree_p = job_subs.add_parser("tree", aliases=["ls"], help="Inspect remote directory tree on a Colab session")
+        tree_p.add_argument("path", nargs="?", default="/content", help="Remote directory path (default: /content)")
+        tree_p.add_argument("--session", "-s", required=True, help="Target Colab session")
+        tree_p.add_argument("--depth", "-L", type=int, default=2, help="Max depth to traverse (default: 2)")
+        tree_p.add_argument("--limit", type=int, default=10, help="Max items per directory branch (default: 10, max: 10)")
+        tree_p.add_argument("--all", "-a", action="store_true", help="Include hidden files (starting with .)")
+        tree_p.add_argument("--json", action="store_true", help="Output raw JSON structure")
 
         return job_parser
 
@@ -180,16 +197,26 @@ class JobCommandHandler:
             print(f"Sample job configuration created at {target_path}")
             return 0
 
-        elif action == "run-config":
+        elif action in ("run-config", "config"):
             cfg_path = Path(args.config_file)
-            if not cfg_path.is_file():
-                print(f"Error: Configuration file not found: {cfg_path}", file=sys.stderr)
+            try:
+                cfg = JobConfig.load(cfg_path)
+            except Exception as exc:
+                print(f"Error loading configuration: {exc}", file=sys.stderr)
                 return 1
-            cfg = JobConfig.load(cfg_path)
             if getattr(args, "gpu", None):
                 cfg.gpu = args.gpu.upper()
             if getattr(args, "session", None):
                 cfg.session = args.session
+            if getattr(args, "log_file", None):
+                cfg.log_file = args.log_file
+            if getattr(args, "detached", None) is not None:
+                cfg.detached = args.detached
+            if getattr(args, "download", None):
+                cfg.download_files = args.download
+            if getattr(args, "download_dir", None):
+                cfg.download_dir = args.download_dir
+
             print(f"Loaded config '{cfg.name}' (GPU: {cfg.gpu}, auto_create: {cfg.auto_create})")
             dispatcher = JobConfigDispatcher(cli)
             session, was_created, result = dispatcher.dispatch(cfg)
@@ -202,6 +229,8 @@ class JobCommandHandler:
                 exit_code, _ = result
                 if cfg.download_files:
                     print(f"Downloaded artifacts to: {cfg.download_dir or './downloads'}")
+                saved_log = resolve_log_file(session, cfg.log_file)
+                print(f"Saved terminal log to: {saved_log}")
                 return exit_code
             else:
                 dl_tip = f"\nPull Outputs: colab-ssh job pull {result.id} --session {session}" if cfg.download_files else ""
@@ -213,9 +242,55 @@ class JobCommandHandler:
                 return 0
 
         elif action in ("run", "submit"):
+            cfg_arg = getattr(args, "config", None)
+            if cfg_arg:
+                try:
+                    cfg = JobConfig.load(cfg_arg)
+                except Exception as exc:
+                    print(f"Error loading configuration: {exc}", file=sys.stderr)
+                    return 1
+                if getattr(args, "session", None):
+                    cfg.session = args.session
+                if getattr(args, "command", ""):
+                    cfg.command = args.command
+                if getattr(args, "log_file", None):
+                    cfg.log_file = args.log_file
+                if getattr(args, "download", None):
+                    cfg.download_files = args.download
+                if getattr(args, "download_dir", None):
+                    cfg.download_dir = args.download_dir
+                if action == "run":
+                    cfg.detached = False
+                elif action == "submit":
+                    cfg.detached = True
+
+                print(f"Loaded config '{cfg.name}' (GPU: {cfg.gpu}, auto_create: {cfg.auto_create})")
+                dispatcher = JobConfigDispatcher(cli)
+                session, was_created, result = dispatcher.dispatch(cfg)
+                action_desc = "Created new" if was_created else "Reusing active"
+                print(f"{action_desc} session '{session}'")
+                if result is None:
+                    print("Session ready. No job command or script was specified.")
+                    return 0
+                if isinstance(result, tuple):
+                    exit_code, _ = result
+                    if cfg.download_files:
+                        print(f"Downloaded artifacts to: {cfg.download_dir or './downloads'}")
+                    saved_log = resolve_log_file(session, cfg.log_file)
+                    print(f"Saved terminal log to: {saved_log}")
+                    return exit_code
+                else:
+                    dl_tip = f"\nPull Outputs: colab-ssh job pull {result.id} --session {session}" if cfg.download_files else ""
+                    print(f"Job launched in background!\n"
+                          f"Job ID:  {result.id}\n"
+                          f"Status:  {result.status}\n"
+                          f"Logs:    colab-ssh job logs {result.id} --session {session}\n"
+                          f"Status:  colab-ssh job status {result.id} --session {session}{dl_tip}")
+                    return 0
+
             session = args.session
             if not session:
-                parser.error("--session is required to run a job")
+                parser.error("--session is required to run a job (or use --config)")
             cmd = getattr(args, "command", "") or ""
             script = getattr(args, "script", None)
             sync_dir = getattr(args, "sync_dir", None)
@@ -223,11 +298,31 @@ class JobCommandHandler:
             detached = getattr(args, "detached", False) or (action == "submit" and getattr(args, "detached", True))
             download_files = getattr(args, "download", None)
             download_dir = getattr(args, "download_dir", None)
+            log_file = getattr(args, "log_file", None)
 
-            if not cmd and not script:
-                parser.error("Must specify a command or --script to execute")
+            try:
+                validate_job_requirements(
+                    command=cmd,
+                    script_path=script,
+                    sync_dir=sync_dir,
+                    session=session,
+                )
+            except (ValueError, FileNotFoundError, NotADirectoryError) as exc:
+                print(f"Pre-flight requirement check failed:\n  {exc}", file=sys.stderr)
+                return 1
 
-            print(f"Submitting job to session '{session}'...", flush=True)
+            manifest = format_job_manifest(
+                session=session,
+                command=cmd,
+                script_path=script,
+                sync_dir=sync_dir,
+                cwd=cwd,
+                detached=detached,
+                download_files=download_files,
+                download_dir=download_dir,
+                log_file=log_file,
+            )
+            print(manifest, flush=True)
             try:
                 result = jm.run(
                     session=session,
@@ -238,6 +333,7 @@ class JobCommandHandler:
                     cwd=cwd,
                     download_files=download_files,
                     download_dir=download_dir,
+                    log_file=log_file,
                 )
                 if detached:
                     dl_tip = f"\nPull Outputs: colab-ssh job pull {result.id} --session {session}" if download_files else ""
@@ -251,6 +347,8 @@ class JobCommandHandler:
                     exit_code, _ = result
                     if download_files:
                         print(f"Downloaded {len(download_files)} file pattern(s) to '{download_dir or './downloads'}'")
+                    saved_log = resolve_log_file(session, log_file)
+                    print(f"Saved terminal log to: {saved_log}")
                     return exit_code
             except Exception as exc:
                 print(f"Job failed: {exc}", file=sys.stderr)
@@ -366,6 +464,27 @@ class JobCommandHandler:
                 print(f"Pull failed: {exc}", file=sys.stderr)
                 return 1
 
+        elif action in ("tree", "ls"):
+            session = args.session
+            if not session:
+                parser.error("--session is required to inspect directory")
+            path = getattr(args, "path", "/content") or "/content"
+            depth = getattr(args, "depth", 2) or 2
+            limit = min(10, getattr(args, "limit", 10) or 10)
+            show_hidden = bool(getattr(args, "all", False))
+            try:
+                tree_data = jm.tree(session, path=path, max_depth=depth, max_items=limit, show_hidden=show_hidden)
+                if getattr(args, "json", False):
+                    print(json.dumps(tree_data, indent=2))
+                else:
+                    from colab_session.session.explorer import RemoteDirectoryExplorer
+                    print(f"Directory tree on '{session}' ({path}, max {limit} items/branch):\n")
+                    print(RemoteDirectoryExplorer.render_tree(tree_data))
+                return 0
+            except Exception as exc:
+                print(f"Failed to inspect directory: {exc}", file=sys.stderr)
+                return 1
+
         return 0
 
 
@@ -412,7 +531,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repo", nargs="?", type=github_url, help="Optional GitHub HTTPS repository URL")
     parser.add_argument("--gpu", default="T4", type=str.upper, choices=['T4', 'L4', 'G4', 'A100', 'H100'])
-    parser.add_argument("--session", help="Name for a NEW session, or target session for commands")
+    parser.add_argument("--session", "-s", help="Name for a NEW session, or target session for commands")
     parser.add_argument("--branch", help="Branch or tag to clone")
     parser.add_argument("--drive-dir", default="drive", help="Mount directory inside the workspace")
     parser.add_argument("--skip-drive", action="store_true", help="Do not mount Google Drive")
@@ -432,9 +551,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=os.environ.get("COLAB_SSH_HOST", "127.0.0.1"), help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=int(os.environ.get("COLAB_SSH_PORT", "6767")), help=argparse.SUPPRESS)
     parser.add_argument("--run", metavar="COMMAND", help="Run a command on the target session")
-    parser.add_argument("--config", metavar="FILE", help="Execute job defined in a JSON configuration file")
+    parser.add_argument("--config", "-c", nargs="?", const="colab-job.json", metavar="FILE", help="Execute job defined in a JSON or YAML configuration file (default: colab-job.json)")
+    parser.add_argument("--detached", "-d", dest="detached", action="store_true", default=None, help="Run job in background")
+    parser.add_argument("--foreground", "-f", dest="detached", action="store_false", help="Run job in foreground")
     parser.add_argument("--download", nargs="+", metavar="FILE", help="Download specified files or patterns from session to local machine")
     parser.add_argument("--dest", default="./downloads", help="Local destination directory for downloaded files (default: ./downloads)")
+    parser.add_argument("--log-file", help="Save terminal output to a local log file")
+    parser.add_argument("--tree", nargs="?", const="/content", metavar="PATH", help="Inspect remote directory tree on target session (default: /content)")
 
     return parser
 
@@ -453,6 +576,12 @@ def main(argv=None) -> int:
         args = job_parser.parse_args(args_list[1:])
         return JobCommandHandler.handle_job_cli(args, cli, job_parser)
 
+    # Auto-detect config file if passed as first positional argument without flags
+    if args_list and not args_list[0].startswith("-") and args_list[0] != "job":
+        candidate = Path(args_list[0])
+        if candidate.suffix.lower() in (".json", ".yaml", ".yml") or (candidate.is_file() and not args_list[0].startswith("http")):
+            args_list = ["--config", args_list[0]] + args_list[1:]
+
     parser = build_parser()
     if any(h in args_list for h in ("-h", "--help")):
         parser.parse_args(args_list)
@@ -466,8 +595,24 @@ def main(argv=None) -> int:
         if not args.session:
             parser.error("--session is required with --run")
         jm = JobManager(cli)
-        code, _ = jm.run(args.session, args.run, detached=False)
+        code, _ = jm.run(args.session, args.run, detached=False, log_file=args.log_file)
+        saved_log = resolve_log_file(args.session, args.log_file)
+        print(f"Saved terminal log to: {saved_log}")
         return code
+
+    if args.tree:
+        if not args.session:
+            parser.error("--session is required with --tree")
+        jm = JobManager(cli)
+        try:
+            tree_data = jm.tree(args.session, path=args.tree, max_depth=2, max_items=10)
+            from colab_session.session.explorer import RemoteDirectoryExplorer
+            print(f"Directory tree on '{args.session}' ({args.tree}, max 10 items/branch):\n")
+            print(RemoteDirectoryExplorer.render_tree(tree_data))
+            return 0
+        except Exception as exc:
+            print(f"Failed to inspect directory: {exc}", file=sys.stderr)
+            return 1
 
     if args.download:
         if not args.session:
@@ -489,13 +634,22 @@ def main(argv=None) -> int:
 
     if args.config:
         cfg_path = Path(args.config)
-        if not cfg_path.is_file():
-            parser.error(f"Configuration file not found: {cfg_path}")
-        cfg = JobConfig.load(cfg_path)
+        try:
+            cfg = JobConfig.load(cfg_path)
+        except Exception as exc:
+            parser.error(f"Configuration error: {exc}")
         if args.gpu and args.gpu != "T4":
             cfg.gpu = args.gpu
         if args.session:
             cfg.session = args.session
+        if args.log_file:
+            cfg.log_file = args.log_file
+        if getattr(args, "detached", None) is not None:
+            cfg.detached = args.detached
+        if args.download:
+            cfg.download_files = args.download
+        if args.dest and args.dest != "./downloads":
+            cfg.download_dir = args.dest
         print(f"Loaded config '{cfg.name}' (GPU: {cfg.gpu}, auto_create: {cfg.auto_create})")
         dispatcher = JobConfigDispatcher(cli)
         session, was_created, result = dispatcher.dispatch(cfg)
@@ -505,13 +659,18 @@ def main(argv=None) -> int:
             return 0
         if isinstance(result, tuple):
             exit_code, _ = result
+            if cfg.download_files:
+                print(f"Downloaded artifacts to: {cfg.download_dir or './downloads'}")
+            saved_log = resolve_log_file(session, cfg.log_file)
+            print(f"Saved terminal log to: {saved_log}")
             return exit_code
         else:
+            dl_tip = f"\nPull Outputs: colab-ssh job pull {result.id} --session {session}" if cfg.download_files else ""
             print(f"Job launched in background!\n"
                   f"Job ID:  {result.id}\n"
                   f"Status:  {result.status}\n"
                   f"Logs:    colab-ssh job logs {result.id} --session {session}\n"
-                  f"Status:  colab-ssh job status {result.id} --session {session}")
+                  f"Status:  colab-ssh job status {result.id} --session {session}{dl_tip}")
             return 0
 
     if args.list or args.stop or args.serve or args.backup or args.list_backups:

@@ -1,0 +1,14 @@
+import os
+from pathlib import Path
+import subprocess
+
+repo = Path({{REMOTE}})
+{{CLONE_COMMAND}}
+mount = repo / {{DRIVE_DIR}}
+if mount.exists() or mount.is_symlink():
+    raise RuntimeError(f"Drive path already exists: {mount}; choose another --drive-dir")
+mount.mkdir()
+with (repo / '.git/info/exclude').open('a') as f:
+    f.write({{EXCLUDE_LINE}})
+os.chdir(repo)
+

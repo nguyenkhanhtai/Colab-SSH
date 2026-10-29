@@ -7,6 +7,8 @@ import shlex
 import subprocess
 from typing import Dict, List, Optional
 
+from colab_session.exceptions import BackupError, DriveNotMountedError
+from colab_session.resources import read_resource, render_template
 from colab_session.ssh.config import alias_for, config_for
 from colab_session.ssh.proxy import command as proxy_command
 
@@ -35,174 +37,30 @@ class BackupScriptGenerator:
 
     @staticmethod
     def backup_script(session_name: str, key: str) -> str:
-        return f"""import json
-import os
-import subprocess
-from datetime import datetime, timezone
-from pathlib import Path
-
-# 1. Locate Google Drive MyDrive
-drive_candidates = list(Path('/content').glob('**/MyDrive'))
-if not drive_candidates:
-    raise RuntimeError("Google Drive is not mounted in this session. Mount Drive before backing up.")
-
-my_drive = drive_candidates[0]
-mount_dir = my_drive.parent
-
-# 2. Determine workspace
-if mount_dir.parent not in (Path('/'), Path('/content')):
-    workspace = mount_dir.parent
-    workspace_name = workspace.name
-else:
-    workspace = Path('/content')
-    workspace_name = ""
-
-# 3. Create backups folder on Google Drive
-candidate_dirs = [
-    my_drive / 'Colab-Backups',
-    my_drive / 'colab-backups',
-    my_drive / 'colab_backups',
-]
-backups_dir = next((p for p in candidate_dirs if p.is_dir()), my_drive / 'Colab-Backups')
-backups_dir.mkdir(parents=True, exist_ok=True)
-
-archive_path = backups_dir / f"{key}.tar.gz"
-meta_path = backups_dir / f"{key}.json"
-
-# 4. Determine relative path of mount_dir from workspace to exclude from archive
-try:
-    mount_rel = mount_dir.relative_to(workspace)
-    exclude_mount = str(mount_rel)
-except ValueError:
-    exclude_mount = "drive"
-
-excludes = [
-    f"--exclude={{exclude_mount}}",
-    "--exclude=.cache",
-    "--exclude=__pycache__",
-    "--exclude=.ipynb_checkpoints",
-    "--exclude=.venv",
-    "--exclude=venv",
-    "--exclude=*.pyc",
-    "--exclude=*.pat",
-    "--exclude=auth.json",
-    "--exclude=credentials.json",
-    "--exclude=.env",
-]
-if workspace == Path('/content'):
-    excludes.extend([
-        "--exclude=sample_data",
-        "--exclude=.config",
-    ])
-
-# 5. Archive workspace into tar.gz
-tar_cmd = ["tar", "-czf", str(archive_path), "-C", str(workspace), *excludes, "."]
-res = subprocess.run(tar_cmd, capture_output=True, text=True)
-if res.returncode != 0:
-    raise RuntimeError(f"tar backup failed: {{res.stderr}}")
-
-size_bytes = archive_path.stat().st_size
-size_mb = round(size_bytes / (1024 * 1024), 2)
-
-metadata = {{
-    "key": {key!r},
-    "created_at": datetime.now(timezone.utc).isoformat(),
-    "session": {session_name!r},
-    "workspace": str(workspace),
-    "workspace_name": workspace_name,
-    "size_bytes": size_bytes,
-    "size_mb": size_mb,
-}}
-meta_path.write_text(json.dumps(metadata, indent=2))
-
-print(json.dumps({{"status": "ok", "key": {key!r}, "size_mb": size_mb, "path": str(archive_path)}}))
-"""
+        return render_template(
+            "scripts",
+            "remote_backup.py.template",
+            context={
+                "KEY": key,
+                "KEY_REPR": repr(key),
+                "SESSION_NAME_REPR": repr(session_name),
+            },
+        )
 
     @staticmethod
     def restore_script(key: str) -> str:
-        return f"""import json
-import os
-import subprocess
-from pathlib import Path
-
-# 1. Locate Google Drive MyDrive
-drive_candidates = list(Path('/content').glob('**/MyDrive'))
-if not drive_candidates:
-    raise RuntimeError("Google Drive is not mounted. Cannot access backup.")
-
-my_drive = drive_candidates[0]
-candidate_dirs = [
-    my_drive / 'Colab-Backups',
-    my_drive / 'colab-backups',
-    my_drive / 'colab_backups',
-]
-backups_dir = next((p for p in candidate_dirs if (p / f"{key}.tar.gz").is_file()), my_drive / 'Colab-Backups')
-archive_path = backups_dir / f"{key}.tar.gz"
-meta_path = backups_dir / f"{key}.json"
-
-if not archive_path.is_file():
-    raise RuntimeError(f"Backup key '{key}' not found in Google Drive ({{archive_path}}).")
-
-workspace_name = ""
-if meta_path.is_file():
-    try:
-        meta = json.loads(meta_path.read_text())
-        workspace_name = meta.get("workspace_name", "")
-    except Exception:
-        pass
-
-if workspace_name:
-    workspace = Path('/content') / workspace_name
-    workspace.mkdir(parents=True, exist_ok=True)
-    tar_cmd = ["tar", "--no-same-owner", "-xzf", str(archive_path), "-C", str(workspace)]
-    res = subprocess.run(tar_cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        raise RuntimeError(f"tar restore failed: {{res.stderr}}")
-    mount_link = workspace / 'drive'
-    if not mount_link.exists() and not mount_link.is_symlink():
-        mount_dir = my_drive.parent
-        mount_link.symlink_to(mount_dir)
-else:
-    workspace = Path('/content')
-    tar_cmd = ["tar", "--no-same-owner", "--exclude=drive", "-xzf", str(archive_path), "-C", str(workspace)]
-    res = subprocess.run(tar_cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        raise RuntimeError(f"tar restore failed: {{res.stderr}}")
-
-print(json.dumps({{"status": "ok", "key": {key!r}, "workspace": str(workspace)}}))
-"""
+        return render_template(
+            "scripts",
+            "remote_restore.py.template",
+            context={
+                "KEY": key,
+                "KEY_REPR": repr(key),
+            },
+        )
 
     @staticmethod
     def list_backups_script() -> str:
-        return """import json
-from pathlib import Path
-
-drive_candidates = list(Path('/content').glob('**/MyDrive'))
-if not drive_candidates:
-    raise RuntimeError("Google Drive is not mounted in this session.")
-
-my_drive = drive_candidates[0]
-candidate_dirs = [
-    my_drive / 'Colab-Backups',
-    my_drive / 'colab-backups',
-    my_drive / 'colab_backups',
-]
-items = []
-seen_keys = set()
-for backups_dir in candidate_dirs:
-    if backups_dir.is_dir():
-        for meta_file in sorted(backups_dir.glob('*.json'), reverse=True):
-            try:
-                data = json.loads(meta_file.read_text())
-                k = data.get('key')
-                if k and k not in seen_keys:
-                    seen_keys.add(k)
-                    items.append(data)
-            except Exception:
-                pass
-
-print(json.dumps({"status": "ok", "backups": items}))
-"""
+        return read_resource("scripts", "remote_list_backups.py")
 
 
 def ssh_command_for_session(cli: str, session: str, gpu: Optional[str] = None) -> List[str]:
@@ -248,8 +106,8 @@ class DriveBackupService:
             lines = [ln.strip() for ln in err.splitlines() if ln.strip()]
             last_err = lines[-1] if lines else str(exc)
             if "Google Drive is not mounted" in err:
-                raise RuntimeError("Google Drive is not mounted in this session. Mount Drive before backing up.") from exc
-            raise RuntimeError(f"Backup failed on remote VM: {last_err}") from exc
+                raise DriveNotMountedError("Google Drive is not mounted in this session. Mount Drive before backing up.") from exc
+            raise BackupError(f"Backup failed on remote VM: {last_err}") from exc
 
         lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
         for line in reversed(lines):
@@ -259,7 +117,7 @@ class DriveBackupService:
                     return data
             except json.JSONDecodeError:
                 continue
-        raise RuntimeError(f"Unexpected backup response from remote session: {res.stdout}")
+        raise BackupError(f"Unexpected backup response from remote session: {res.stdout}")
 
     def list_backups(self, cli: str, session: str) -> List[Dict]:
         """Query available backups from Google Drive via an active session."""
@@ -274,7 +132,7 @@ class DriveBackupService:
             )
         except subprocess.CalledProcessError as exc:
             err = (exc.stderr or exc.stdout or str(exc)).strip()
-            raise RuntimeError(f"Failed to list backups: {err}") from exc
+            raise BackupError(f"Failed to list backups: {err}") from exc
 
         lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
         for line in reversed(lines):

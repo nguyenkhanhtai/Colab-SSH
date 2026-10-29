@@ -27,12 +27,22 @@ class JobRunnerTests(unittest.TestCase):
         self.assertEqual(reconstructed.command, job.command)
 
     def test_script_generator_contains_status_and_pid(self):
-        wrapper = JobScriptGenerator.wrapper_script("job-9999", "echo hello", cwd="/content/repo")
+        wrapper = JobScriptGenerator.wrapper_script(
+            "job-9999",
+            "echo hello",
+            cwd="/content/repo",
+            env={"CUSTOM_VAR": "42"},
+            setup_command="pip install -q torch",
+        )
         self.assertIn("/root/.colab-jobs/job-9999.status", wrapper)
         self.assertIn("/root/.colab-jobs/job-9999.pid", wrapper)
         self.assertIn("cd /content/repo", wrapper)
         self.assertIn("echo hello", wrapper)
         self.assertIn("EXIT $EXIT_CODE", wrapper)
+        self.assertIn("/usr/lib64-nvidia", wrapper)
+        self.assertIn("/root/.local/bin", wrapper)
+        self.assertIn("export CUSTOM_VAR=42", wrapper)
+        self.assertIn("pip install -q torch", wrapper)
 
     @patch("colab_session.jobs.runner.subprocess.run")
     def test_file_synchronizer_creates_tarball(self, run):
@@ -126,6 +136,29 @@ class JobRunnerTests(unittest.TestCase):
             capture_output=False,
             download_files=None,
             download_dir="./downloads",
+            env=None,
+            setup_command=None,
+            log_file=None,
+        )
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.manager.RemoteJobRunner.run_sync", return_value=(0, "ok"))
+    def test_cli_job_run_with_log_file(self, run_sync, which):
+        with patch("sys.stdout", io.StringIO()):
+            code = app.main(["job", "run", "--session", "test-vm", "--log-file", "output.log", "nvidia-smi"])
+        self.assertEqual(code, 0)
+        run_sync.assert_called_once_with(
+            session="test-vm",
+            command="nvidia-smi",
+            script_path=None,
+            sync_dir=None,
+            cwd="/content",
+            capture_output=False,
+            download_files=None,
+            download_dir="./downloads",
+            env=None,
+            setup_command=None,
+            log_file="output.log",
         )
 
     @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
@@ -234,6 +267,77 @@ class JobRunnerTests(unittest.TestCase):
         self.assertEqual(replied["status"], 200)
         self.assertEqual(replied["data"]["id"], "job-123")
         app_instance.run_job.assert_called_once_with("test-vm", {"command": "nvidia-smi", "detached": True})
+
+    def test_validate_job_requirements(self):
+        from colab_session.exceptions import ColabSessionError, PreflightValidationError
+        from colab_session.jobs.models import format_job_manifest, validate_job_requirements
+
+        # Missing both command and script
+        with self.assertRaises(PreflightValidationError) as ctx:
+            validate_job_requirements(command="", script_path=None, session="test-vm")
+        self.assertIn("Missing required execution target", str(ctx.exception))
+        self.assertTrue(issubclass(PreflightValidationError, ColabSessionError))
+        self.assertTrue(issubclass(PreflightValidationError, ValueError))
+
+        # Missing script file
+        with self.assertRaises(FileNotFoundError) as ctx:
+            validate_job_requirements(command="python3 non_existent.py", script_path="non_existent_file.py", session="test-vm")
+        self.assertIn("Local script file not found", str(ctx.exception))
+
+        # Missing sync directory
+        with self.assertRaises(NotADirectoryError) as ctx:
+            validate_job_requirements(command="ls", sync_dir="/non/existent/dir/12345", session="test-vm")
+        self.assertIn("Local sync directory not found", str(ctx.exception))
+
+        # Empty session name
+        with self.assertRaises(ValueError) as ctx:
+            validate_job_requirements(command="ls", session="   ")
+        self.assertIn("session name cannot be empty", str(ctx.exception))
+
+        # Valid parameters succeed without raising
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "main.py"
+            script.write_text("print(1)")
+            validate_job_requirements(command="", script_path=script, sync_dir=tmp, session="test-vm")
+
+    def test_format_job_manifest(self):
+        from colab_session.jobs.models import format_job_manifest
+        manifest = format_job_manifest(
+            session="colab-gpu-node",
+            gpu="A100",
+            command="python3 train.py --lr 0.001",
+            script_path="train.py",
+            sync_dir="./src",
+            cwd="/content/my_project",
+            detached=True,
+            download_files=["checkpoints/model.pt", "eval.json"],
+            download_dir="./weights",
+            log_file="logs/my_run.log",
+            env={"BATCH_SIZE": "64", "SECRET_KEY": "supersecret"},
+            setup_command="pip install -q transformers",
+            tracking={"enabled": True, "provider": "wandb", "project": "filament", "run_name": "run-42", "metrics": ["loss", "acc"]},
+        )
+        self.assertIn("COLAB JOB EXECUTION MANIFEST", manifest)
+        self.assertIn("colab-gpu-node", manifest)
+        self.assertIn("A100", manifest)
+        self.assertIn("Background (Detached)", manifest)
+        self.assertIn("/content/my_project", manifest)
+        self.assertIn("train.py", manifest)
+        self.assertIn("./src -> /content/my_project", manifest)
+        self.assertIn("pip install -q transformers", manifest)
+        self.assertIn("checkpoints/model.pt, eval.json -> ./weights", manifest)
+        self.assertIn("WANDB (Project: 'filament', Run: 'run-42')", manifest)
+        self.assertIn("loss, acc", manifest)
+        self.assertIn("BATCH_SIZE = 64", manifest)
+        self.assertIn("SECRET_KEY = ***", manifest)
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    def test_cli_job_preflight_validation_failure(self, which):
+        with patch("sys.stderr", io.StringIO()) as err:
+            code = app.main(["job", "run", "--session", "test-vm"])
+        self.assertEqual(code, 1)
+        self.assertIn("Pre-flight requirement check failed", err.getvalue())
+        self.assertIn("Missing required execution target", err.getvalue())
 
 
 if __name__ == "__main__":

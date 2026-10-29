@@ -3,6 +3,7 @@ from io import BytesIO
 from pathlib import Path
 import tarfile
 import tempfile
+import shlex
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,14 @@ class TestJobFileDownloader(unittest.TestCase):
                 local_dest_dir=tmp,
             )
             self.assertEqual(result, [])
+            # SSH joins remote arguments through a shell; the Python program
+            # must remain a single argument after that shell parses the command.
+            command = mock_run.call_args.args[0]
+            self.assertEqual(command[:2], ["ssh", "host"])
+            remote_args = shlex.split(" ".join(command[2:]))
+            self.assertEqual(remote_args[:2], ["python3", "-c"])
+            compile(remote_args[2], "collector", "exec")
+            self.assertEqual(remote_args[3:], ["/content", "nonexistent.txt"])
 
     @patch("colab_session.jobs.runner.subprocess.run")
     def test_download_extracts_files_safely(self, mock_run):

@@ -56,6 +56,7 @@ class TestColabMCPServer(unittest.TestCase):
         self.assertIn("colab_stop_session", tool_names)
         self.assertIn("colab_download_files", tool_names)
         self.assertIn("colab_pull_job_artifacts", tool_names)
+        self.assertIn("colab_tree_directory", tool_names)
 
     @patch("colab_session.mcp.server.list_sessions")
     def test_call_list_sessions(self, mock_sessions):
@@ -110,6 +111,8 @@ class TestColabMCPServer(unittest.TestCase):
         data = json.loads(res["result"]["content"][0]["text"])
         self.assertEqual(data["id"], "job-abc")
         self.assertEqual(data["status"], "running")
+        self.assertIn("manifest", data)
+        self.assertIn("COLAB JOB EXECUTION MANIFEST", data["manifest"])
 
     def test_call_run_job_foreground(self):
         self.server.job_manager.run = MagicMock(return_value=(0, "GPU: Tesla T4\n"))
@@ -131,6 +134,8 @@ class TestColabMCPServer(unittest.TestCase):
         data = json.loads(res["result"]["content"][0]["text"])
         self.assertEqual(data["exit_code"], 0)
         self.assertIn("Tesla T4", data["output"])
+        self.assertIn("manifest", data)
+        self.assertIn("COLAB JOB EXECUTION MANIFEST", data["manifest"])
 
     def test_call_run_from_config(self):
         mock_job = Job(id="job-cfg-1", session="colab-auto", command="python3 train.py", status=JobStatus.RUNNING)
@@ -156,6 +161,8 @@ class TestColabMCPServer(unittest.TestCase):
             self.assertEqual(data["id"], "job-cfg-1")
             self.assertEqual(data["session"], "colab-auto")
             self.assertTrue(data["was_created"])
+            self.assertIn("manifest", data)
+            self.assertIn("COLAB JOB EXECUTION MANIFEST", data["manifest"])
 
     def test_call_job_status_and_logs(self):
         mock_job = Job(id="job-status-1", session="colab-test", command="ls", status=JobStatus.COMPLETED, exit_code=0)
@@ -264,6 +271,42 @@ class TestColabMCPServer(unittest.TestCase):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["downloaded_artifacts"], ["weights.pt"])
         self.server.job_manager.pull.assert_called_once_with("s1", "job-999", local_dest_dir=None)
+
+    def test_call_tree_directory(self):
+        mock_tree = {
+            "name": "content",
+            "path": "/content",
+            "is_dir": True,
+            "children": [
+                {"name": "checkpoints", "path": "/content/checkpoints", "is_dir": True, "children": []},
+                {"name": "train.py", "path": "/content/train.py", "is_dir": False, "size": 1024, "size_human": "1.0 KB"}
+            ],
+            "total_items": 2,
+            "shown_items": 2,
+            "has_more": False,
+        }
+        self.server.job_manager.tree = MagicMock(return_value=mock_tree)
+        req = {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {
+                "name": "colab_tree_directory",
+                "arguments": {"session": "s1", "path": "/content", "max_depth": 2, "max_items_per_branch": 10}
+            }
+        }
+        res = self.server.handle_request(req)
+        text = res["result"]["content"][0]["text"]
+        self.assertIn("/content/", text)
+        self.assertIn("checkpoints/", text)
+        self.assertIn("train.py (1.0 KB)", text)
+        self.server.job_manager.tree.assert_called_once_with(
+            session="s1",
+            path="/content",
+            max_depth=2,
+            max_items=10,
+            show_hidden=False,
+        )
 
     def test_ping(self):
         req = {"jsonrpc": "2.0", "id": 13, "method": "ping"}

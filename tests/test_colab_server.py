@@ -38,7 +38,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('${E(s.stage)}', colab_server.HTML)
         self.assertIn('.auth-link.hidden{display:none}', colab_server.HTML)
         self.assertIn("Preparing session: '+x.stage+' · '+x.progress+'%'", colab_server.HTML)
+        self.assertIn('id="treeDialog"', colab_server.HTML)
+        self.assertIn('Files 📁', colab_server.HTML)
+        self.assertIn('openTreeModal', colab_server.HTML)
         self.assertNotIn('<form id="compute"', colab_server.HTML)
+        self.assertNotIn('id="jobDialog"', colab_server.HTML)
+        self.assertNotIn('openJobModal', colab_server.HTML)
+        self.assertNotIn('Open notebook', colab_server.HTML)
 
 
 class ServerAppTests(unittest.TestCase):
@@ -183,6 +189,44 @@ class ServerAppTests(unittest.TestCase):
         self.assertFalse(handler.validate_origin())
         self.assertEqual(replied['status'], 403)
         self.assertIn('forbidden', replied['data']['error'])
+
+    def test_inspect_tree_endpoint(self):
+        app = colab_server.App('/bin/colab')
+        mock_tree = {
+            'name': 'content',
+            'path': '/content',
+            'is_dir': True,
+            'children': [
+                {'name': 'train.py', 'path': '/content/train.py', 'is_dir': False, 'size_human': '2.1 KB'}
+            ],
+            'total_items': 1,
+            'shown_items': 1,
+            'has_more': False,
+        }
+        with patch.object(app.job_manager, 'tree', return_value=mock_tree) as mock_m_tree, \
+                patch('colab_session.server.app.session_manager.validate_name'):
+            handler_cls = colab_server.handler_for(app)
+            handler = handler_cls.__new__(handler_cls)
+            handler.path = '/api/sessions/session-1/tree?path=/content&depth=2&limit=10'
+            replied = {}
+            def mock_reply(data, status=200):
+                replied['data'] = data
+                replied['status'] = status
+            handler.reply = mock_reply
+            handler.do_GET()
+
+            self.assertEqual(replied['status'], 200)
+            self.assertEqual(replied['data']['session'], 'session-1')
+            self.assertEqual(replied['data']['path'], '/content')
+            self.assertEqual(replied['data']['tree']['name'], 'content')
+            self.assertIn('/content/', replied['data']['rendered'])
+            mock_m_tree.assert_called_once_with(
+                session='session-1',
+                path='/content',
+                max_depth=2,
+                max_items=10,
+                show_hidden=False,
+            )
 
 
 if __name__ == '__main__':

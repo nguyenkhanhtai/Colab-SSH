@@ -1,0 +1,82 @@
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+
+# 1. Locate Google Drive MyDrive
+drive_candidates = list(Path('/content').glob('**/MyDrive'))
+if not drive_candidates:
+    raise RuntimeError("Google Drive is not mounted in this session. Mount Drive before backing up.")
+
+my_drive = drive_candidates[0]
+mount_dir = my_drive.parent
+
+# 2. Determine workspace
+if mount_dir.parent not in (Path('/'), Path('/content')):
+    workspace = mount_dir.parent
+    workspace_name = workspace.name
+else:
+    workspace = Path('/content')
+    workspace_name = ""
+
+# 3. Create backups folder on Google Drive
+candidate_dirs = [
+    my_drive / 'Colab-Backups',
+    my_drive / 'colab-backups',
+    my_drive / 'colab_backups',
+]
+backups_dir = next((p for p in candidate_dirs if p.is_dir()), my_drive / 'Colab-Backups')
+backups_dir.mkdir(parents=True, exist_ok=True)
+
+archive_path = backups_dir / f"{{KEY}}.tar.gz"
+meta_path = backups_dir / f"{{KEY}}.json"
+
+# 4. Determine relative path of mount_dir from workspace to exclude from archive
+try:
+    mount_rel = mount_dir.relative_to(workspace)
+    exclude_mount = str(mount_rel)
+except ValueError:
+    exclude_mount = "drive"
+
+excludes = [
+    f"--exclude={exclude_mount}",
+    "--exclude=.cache",
+    "--exclude=__pycache__",
+    "--exclude=.ipynb_checkpoints",
+    "--exclude=.venv",
+    "--exclude=venv",
+    "--exclude=*.pyc",
+    "--exclude=*.pat",
+    "--exclude=auth.json",
+    "--exclude=credentials.json",
+    "--exclude=.env",
+]
+if workspace == Path('/content'):
+    excludes.extend([
+        "--exclude=sample_data",
+        "--exclude=.config",
+    ])
+
+# 5. Archive workspace into tar.gz
+tar_cmd = ["tar", "-czf", str(archive_path), "-C", str(workspace), *excludes, "."]
+res = subprocess.run(tar_cmd, capture_output=True, text=True)
+if res.returncode != 0:
+    raise RuntimeError(f"tar backup failed: {res.stderr}")
+
+size_bytes = archive_path.stat().st_size
+size_mb = round(size_bytes / (1024 * 1024), 2)
+
+metadata = {
+    "key": {{KEY_REPR}},
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "session": {{SESSION_NAME_REPR}},
+    "workspace": str(workspace),
+    "workspace_name": workspace_name,
+    "size_bytes": size_bytes,
+    "size_mb": size_mb,
+}
+meta_path.write_text(json.dumps(metadata, indent=2))
+
+print(json.dumps({"status": "ok", "key": {{KEY_REPR}}, "size_mb": size_mb, "path": str(archive_path)}))
+

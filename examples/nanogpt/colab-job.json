@@ -1,0 +1,12 @@
+{
+  "name": "nanogpt-shakespeare-smoke",
+  "gpu": "T4",
+  "auto_create": true,
+  "sync_dir": "examples/nanogpt",
+  "command": "bash /content/nanogpt/train.sh",
+  "cwd": "/content",
+  "detached": true,
+  "mount_drive": false,
+  "download_files": ["nanogpt-artifacts/ckpt.pt", "nanogpt-artifacts/revision.txt"],
+  "download_dir": "./outputs/nanogpt"
+}

@@ -149,7 +149,124 @@ class TestJobConfigDispatcher(unittest.TestCase):
             cwd="/content",
             download_files=[],
             download_dir=None,
+            env={},
+            setup_command=None,
+            log_file=None,
         )
+
+    def test_save_and_load_yaml(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "job.yaml"
+            cfg = JobConfig(name="yaml-test", gpu="L4", command="python3 test.py", detached=False)
+            cfg.save(file_path)
+            self.assertTrue(file_path.is_file())
+
+            loaded = JobConfig.load(file_path)
+            self.assertEqual(loaded.name, "yaml-test")
+            self.assertEqual(loaded.gpu, "L4")
+            self.assertFalse(loaded.detached)
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.config.JobConfigDispatcher.dispatch")
+    def test_cli_config_positional(self, mock_dispatch, mock_cli):
+        import colab_session.cli.main as cli_main
+        mock_dispatch.return_value = ("test-vm", False, (0, "output"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "custom_job.json"
+            cfg = JobConfig(name="pos-test", gpu="T4", command="echo 1")
+            cfg.save(file_path)
+
+            exit_code = cli_main.main([str(file_path)])
+            self.assertEqual(exit_code, 0)
+            mock_dispatch.assert_called_once()
+            called_cfg = mock_dispatch.call_args[0][0]
+            self.assertEqual(called_cfg.name, "pos-test")
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.config.JobConfigDispatcher.dispatch")
+    def test_cli_config_flag_with_overrides(self, mock_dispatch, mock_cli):
+        import colab_session.cli.main as cli_main
+        mock_dispatch.return_value = ("test-vm", False, (0, "output"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "custom_job.json"
+            cfg = JobConfig(name="flag-test", gpu="T4", command="echo 1")
+            cfg.save(file_path)
+
+            exit_code = cli_main.main(["-c", str(file_path), "--gpu", "A100", "-s", "my-session", "--foreground"])
+            self.assertEqual(exit_code, 0)
+            called_cfg = mock_dispatch.call_args[0][0]
+            self.assertEqual(called_cfg.gpu, "A100")
+            self.assertEqual(called_cfg.session, "my-session")
+            self.assertFalse(called_cfg.detached)
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.config.JobConfigDispatcher.dispatch")
+    def test_cli_config_flag_default_file(self, mock_dispatch, mock_cli):
+        import colab_session.cli.main as cli_main
+        import os
+        mock_dispatch.return_value = ("test-vm", False, (0, "output"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "colab-job.json"
+            cfg = JobConfig(name="default-test", gpu="T4", command="echo 1")
+            cfg.save(file_path)
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                exit_code = cli_main.main(["-c"])
+                self.assertEqual(exit_code, 0)
+                mock_dispatch.assert_called_once()
+                called_cfg = mock_dispatch.call_args[0][0]
+                self.assertEqual(called_cfg.name, "default-test")
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.config.JobConfigDispatcher.dispatch")
+    def test_cli_job_config_alias(self, mock_dispatch, mock_cli):
+        import colab_session.cli.main as cli_main
+        mock_dispatch.return_value = ("test-vm", False, (0, "output"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "colab-job.json"
+            cfg = JobConfig(name="alias-test", gpu="T4", command="echo 1")
+            cfg.save(file_path)
+
+            exit_code = cli_main.main(["job", "config", str(file_path)])
+            self.assertEqual(exit_code, 0)
+            mock_dispatch.assert_called_once()
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.config.JobConfigDispatcher.dispatch")
+    def test_cli_job_run_with_config(self, mock_dispatch, mock_cli):
+        import colab_session.cli.main as cli_main
+        mock_dispatch.return_value = ("test-vm", False, (0, "output"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "colab-job.json"
+            cfg = JobConfig(name="run-cfg-test", gpu="T4", command="echo 1", detached=True)
+            cfg.save(file_path)
+
+            exit_code = cli_main.main(["job", "run", "-c", str(file_path)])
+            self.assertEqual(exit_code, 0)
+            called_cfg = mock_dispatch.call_args[0][0]
+            # job run forces detached=False
+            self.assertFalse(called_cfg.detached)
+
+    @patch("colab_session.cli.main.find_colab_cli", return_value="/bin/colab")
+    @patch("colab_session.jobs.config.JobConfigDispatcher.dispatch")
+    def test_cli_job_submit_with_config(self, mock_dispatch, mock_cli):
+        import colab_session.cli.main as cli_main
+        mock_job = Job(id="job-99", session="test-vm", command="echo 1", status=JobStatus.RUNNING)
+        mock_dispatch.return_value = ("test-vm", False, mock_job)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "colab-job.json"
+            cfg = JobConfig(name="sub-cfg-test", gpu="T4", command="echo 1", detached=False)
+            cfg.save(file_path)
+
+            exit_code = cli_main.main(["job", "submit", "-c", str(file_path)])
+            self.assertEqual(exit_code, 0)
+            called_cfg = mock_dispatch.call_args[0][0]
+            # job submit forces detached=True
+            self.assertTrue(called_cfg.detached)
 
 
 if __name__ == "__main__":

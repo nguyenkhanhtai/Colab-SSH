@@ -1,0 +1,16 @@
+import json
+import sys
+import tempfile
+
+token = json.load(sys.stdin)
+with tempfile.TemporaryDirectory(prefix="colab-git-") as tmp:
+    askpass = Path(tmp) / "askpass.py"
+    askpass.write_text("#!/usr/bin/env python3\nimport os, sys\nprint('x-access-token' if 'username' in sys.argv[1].lower() else os.environ['COLAB_GIT_TOKEN'])\n")
+    askpass.chmod(0o700)
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": str(askpass), "COLAB_GIT_TOKEN": token}
+    try:
+        subprocess.run({{AUTH_COMMAND}}, check=True, env=env)
+    finally:
+        env.pop("COLAB_GIT_TOKEN", None)
+        del token
+

@@ -5,6 +5,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from colab_session.exceptions import ColabSessionError, GpuAllocationError, SessionProvisioningError
 from colab_session.session.manager import sessions as list_sessions, validate_name
 from colab_session.session.provisioner import SessionConfig, SessionProvisioner
 
@@ -61,7 +62,7 @@ class SessionResolver:
             return existing["name"], False
 
         if not auto_create:
-            raise RuntimeError(f"No running session with GPU '{gpu}' found, and auto_create is disabled.")
+            raise GpuAllocationError(f"No running session with GPU '{gpu}' found, and auto_create is disabled.")
 
         new_name = session_name or ("colab-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:6])
         validate_name(new_name)
@@ -81,9 +82,14 @@ class SessionResolver:
             has_pat_stdin=False,
             skip_environment=skip_environment,
         )
-        provisioner = SessionProvisioner(config)
-        code = provisioner.provision()
-        if code != 0:
-            raise RuntimeError(f"Failed to create new Colab session '{new_name}' with GPU '{gpu}'.")
+        try:
+            provisioner = SessionProvisioner(config)
+            code = provisioner.provision()
+            if code != 0:
+                raise SessionProvisioningError(f"Failed to create new Colab session '{new_name}' with GPU '{gpu}' (provision exit code {code}).")
+        except Exception as exc:
+            if isinstance(exc, ColabSessionError):
+                raise
+            raise SessionProvisioningError(f"Failed to provision Colab session '{new_name}': {exc}") from exc
 
         return new_name, True

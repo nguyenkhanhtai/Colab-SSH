@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 from colab_session.session.manager import find_colab_cli
 from colab_session.jobs.config import JobConfig, JobConfigDispatcher
 from colab_session.jobs.manager import JobManager
+from colab_session.jobs.models import format_job_manifest, resolve_log_file, validate_job_requirements
 from colab_session.session.manager import sessions as list_sessions, stop as stop_session
 from colab_session.session.resolver import SessionResolver
 from colab_session.storage.backup import backup as backup_session
@@ -61,13 +62,13 @@ class ColabMCPServer:
             },
             {
                 "name": "colab_run_job",
-                "description": "Run a command or script on a Colab GPU server. If session is omitted, auto-matches or creates a session with the specified GPU.",
+                "description": "Run a command or script on a Colab GPU server. Explicitly declares and validates execution requirements (session/GPU, script or command, working directory, log path, artifacts) via execution manifest. If session is omitted, auto-matches or creates a session with the specified GPU.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Shell command to execute on remote Colab VM (e.g. 'nvidia-smi', 'python3 train.py')"
+                            "description": "Shell command to execute on remote Colab VM (e.g. 'nvidia-smi', 'python3 train.py'). Required if script_path is omitted."
                         },
                         "gpu": {
                             "type": "string",
@@ -105,9 +106,12 @@ class ColabMCPServer:
                             "type": "string",
                             "description": "Local destination directory for downloaded files (default: ./downloads)",
                             "default": "./downloads"
+                        },
+                        "log_file": {
+                            "type": "string",
+                            "description": "Path to local log destination (default: logs/<session>/<date>/<job_id>.log)"
                         }
-                    },
-                    "required": ["command"]
+                    }
                 }
             },
             {
@@ -224,6 +228,39 @@ class ColabMCPServer:
                     },
                     "required": ["session", "job_id"]
                 }
+            },
+            {
+                "name": "colab_tree_directory",
+                "description": "Explore and observe the remote directory tree and file paths on a Colab session via SSH. Limits each directory branch to at most 10 items to prevent context bloat.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session": {
+                            "type": "string",
+                            "description": "Session name (optional; if omitted, automatically targets the first active session)"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Remote directory path to inspect on Colab (default: /content)",
+                            "default": "/content"
+                        },
+                        "max_depth": {
+                            "type": "integer",
+                            "description": "Maximum tree depth to traverse (default: 2)",
+                            "default": 2
+                        },
+                        "max_items_per_branch": {
+                            "type": "integer",
+                            "description": "Maximum items to show per directory branch (default: 10, max: 10)",
+                            "default": 10
+                        },
+                        "show_hidden": {
+                            "type": "boolean",
+                            "description": "Whether to include hidden files/directories (starting with .)",
+                            "default": False
+                        }
+                    }
+                }
             }
         ]
 
@@ -255,13 +292,34 @@ class ColabMCPServer:
             if not session:
                 session, _ = self.resolver.resolve_or_create(gpu=gpu)
 
-            command = args["command"]
+            command = args.get("command", "")
             script_path = args.get("script_path")
             sync_dir = args.get("sync_dir")
             cwd = args.get("cwd", "/content") or "/content"
             detached = bool(args.get("detached", False))
             download_files = args.get("download_files")
             download_dir = args.get("download_dir")
+            log_file = args.get("log_file")
+
+            validate_job_requirements(
+                command=command,
+                script_path=script_path,
+                sync_dir=sync_dir,
+                session=session,
+            )
+
+            manifest = format_job_manifest(
+                session=session,
+                command=command,
+                script_path=script_path,
+                sync_dir=sync_dir,
+                cwd=cwd,
+                detached=detached,
+                download_files=download_files,
+                download_dir=download_dir,
+                log_file=log_file,
+                gpu=gpu,
+            )
 
             result = self.job_manager.run(
                 session=session,
@@ -273,24 +331,46 @@ class ColabMCPServer:
                 capture_output=True,
                 download_files=download_files,
                 download_dir=download_dir,
+                log_file=log_file,
             )
             if detached:
-                return json.dumps(result.to_dict(), indent=2)
+                return json.dumps({
+                    "manifest": manifest,
+                    **result.to_dict()
+                }, indent=2)
             else:
                 exit_code, output = result
                 return json.dumps({
+                    "manifest": manifest,
                     "session": session,
-                    "command": command,
+                    "command": command or f"python3 {Path(script_path).name}",
                     "exit_code": exit_code,
-                    "output": output
+                    "output": output,
+                    "log_file": str(resolve_log_file(session, log_file)),
                 }, indent=2)
 
         elif name == "colab_run_from_config":
             config_path = args.get("config_path", "colab-job.json")
             cfg = JobConfig.load(config_path)
             session, was_created, result = self.dispatcher.dispatch(cfg)
+            manifest = format_job_manifest(
+                session=session,
+                command=cfg.command,
+                script_path=cfg.script,
+                sync_dir=cfg.sync_dir,
+                cwd=cfg.cwd,
+                detached=cfg.detached,
+                download_files=cfg.download_files,
+                download_dir=cfg.download_dir,
+                log_file=cfg.log_file,
+                gpu=cfg.gpu,
+                env=cfg.env,
+                setup_command=cfg.setup_command,
+                tracking=cfg.tracking,
+            )
             res_dict = result.to_dict() if hasattr(result, "to_dict") else {"result": result}
             return json.dumps({
+                "manifest": manifest,
                 "session": session,
                 "was_created": was_created,
                 **res_dict
@@ -349,6 +429,30 @@ class ColabMCPServer:
                 "downloaded_artifacts": downloaded,
                 "count": len(downloaded),
             }, indent=2)
+
+        elif name == "colab_tree_directory":
+            session = args.get("session")
+            if not session:
+                active = list_sessions(cli=self.cli)
+                if not active:
+                    return "Error: No active Colab sessions found."
+                session = active[0]["name"]
+            path = args.get("path", "/content") or "/content"
+            max_depth = int(args.get("max_depth", 2))
+            # Strict cap at 10 items per branch as requested by user
+            max_items = min(10, int(args.get("max_items_per_branch", 10)))
+            show_hidden = bool(args.get("show_hidden", False))
+
+            tree_data = self.job_manager.tree(
+                session=session,
+                path=path,
+                max_depth=max_depth,
+                max_items=max_items,
+                show_hidden=show_hidden,
+            )
+            from colab_session.session.explorer import RemoteDirectoryExplorer
+            rendered = RemoteDirectoryExplorer.render_tree(tree_data)
+            return f"Directory Tree on session '{session}' (capped at {max_items} items/branch):\n\n{rendered}"
 
         else:
             raise ValueError(f"Unknown tool name: {name}")

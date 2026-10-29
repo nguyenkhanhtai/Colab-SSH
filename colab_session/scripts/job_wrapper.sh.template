@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+mkdir -p /root/.colab-jobs
+STATUS_FILE="/root/.colab-jobs/{{JOB_ID}}.status"
+LOG_FILE="/root/.colab-jobs/{{JOB_ID}}.log"
+PID_FILE="/root/.colab-jobs/{{JOB_ID}}.pid"
+META_FILE="/root/.colab-jobs/{{JOB_ID}}.json"
+
+echo "$$" > "$PID_FILE"
+echo "STARTED $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STATUS_FILE"
+
+# 1. Source Colab shell environment profiles if available
+[ -f /etc/profile ] && . /etc/profile
+[ -f /root/.profile ] && . /root/.profile
+[ -f /root/.bashrc ] && . /root/.bashrc
+
+# 2. Configure NVIDIA driver, CUDA libraries, and user PATH
+export PATH="/root/.local/bin:/usr/local/cuda/bin:$PATH"
+export LD_LIBRARY_PATH="/usr/lib64-nvidia:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PYTHONUNBUFFERED=1
+{{CUSTOM_ENV}}
+cd {{CWD}} || exit 1
+{{SETUP_BLOCK}}
+# 3. Execute main command
+{{COMMAND}}
+EXIT_CODE=$?
+
+echo "EXIT $EXIT_CODE $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STATUS_FILE"
+exit $EXIT_CODE
+

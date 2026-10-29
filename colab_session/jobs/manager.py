@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from colab_session.jobs.models import Job, JobStatus
+from colab_session.jobs.models import Job, JobStatus, validate_job_requirements
 from colab_session.jobs.runner import RemoteJobRunner
 from colab_session.session.manager import validate_name
 
@@ -25,8 +25,17 @@ class JobManager:
         capture_output: bool = False,
         download_files: Optional[List[str]] = None,
         download_dir: Optional[str | Path] = None,
+        env: Optional[Dict[str, str]] = None,
+        setup_command: Optional[str] = None,
+        log_file: Optional[str | Path] = None,
     ) -> Job | Tuple[int, str]:
         validate_name(session)
+        validate_job_requirements(
+            command=command,
+            script_path=script_path,
+            sync_dir=sync_dir,
+            session=session,
+        )
         if detached:
             return self.runner.submit_detached(
                 session=session,
@@ -36,6 +45,9 @@ class JobManager:
                 cwd=cwd,
                 download_files=download_files,
                 download_dir=str(download_dir) if download_dir else None,
+                env=env,
+                setup_command=setup_command,
+                log_file=str(log_file) if log_file else None,
             )
         else:
             return self.runner.run_sync(
@@ -47,6 +59,9 @@ class JobManager:
                 capture_output=capture_output,
                 download_files=download_files,
                 download_dir=download_dir,
+                env=env,
+                setup_command=setup_command,
+                log_file=log_file,
             )
 
     def download_files(
@@ -70,13 +85,15 @@ class JobManager:
         session: str,
         job_id: str,
         local_dest_dir: Optional[str | Path] = None,
+        save_log: bool = True,
     ) -> List[str]:
-        """Pull artifacts/download_files specified by a remote job."""
+        """Pull artifacts/download_files and terminal logs specified by a remote job."""
         validate_name(session)
         return self.runner.pull_job_artifacts(
             session=session,
             job_id=job_id,
             local_dest_dir=local_dest_dir,
+            save_log=save_log,
         )
 
     def status(self, session: str, job_id: str) -> Job:
@@ -94,4 +111,22 @@ class JobManager:
     def list(self, session: str) -> List[Dict[str, Any]]:
         validate_name(session)
         return self.runner.list_jobs(session)
+
+    def tree(
+        self,
+        session: str,
+        path: str = "/content",
+        max_depth: int = 2,
+        max_items: int = 10,
+        show_hidden: bool = False,
+    ) -> Dict[str, Any]:
+        """Inspect directory tree on remote VM, showing at most max_items per branch."""
+        validate_name(session)
+        return self.runner.inspect_tree(
+            session=session,
+            path=path,
+            max_depth=max_depth,
+            max_items_per_branch=max_items,
+            show_hidden=show_hidden,
+        )
 

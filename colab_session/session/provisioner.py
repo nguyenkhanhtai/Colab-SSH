@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from colab_session.auth.credentials import DEFAULT_AUTH, save_pat_mapping
 from colab_session.env.environment import apply as apply_environment, load_profile, register_extensions, sync_context
 from colab_session.hardware.gpu import remote_code as gpu_setup_code
+from colab_session.resources import render_template
 from colab_session.ssh.config import configure, install
 from colab_session.ssh.proxy import command as proxy_command
 
@@ -26,45 +27,31 @@ class WorkspaceScriptGenerator:
         command += ["--", url, remote]
         clone = f'subprocess.run({command!r}, check=True, env={{**os.environ, "GIT_TERMINAL_PROMPT": "0"}})'
         if authenticated:
-            clone = f'''import json
-import sys
-import tempfile
-token = json.load(sys.stdin)
-with tempfile.TemporaryDirectory(prefix="colab-git-") as tmp:
-    askpass = Path(tmp) / "askpass.py"
-    askpass.write_text("#!/usr/bin/env python3\\nimport os, sys\\nprint('x-access-token' if 'username' in sys.argv[1].lower() else os.environ['COLAB_GIT_TOKEN'])\\n")
-    askpass.chmod(0o700)
-    env = {{**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": str(askpass), "COLAB_GIT_TOKEN": token}}
-    try:
-        subprocess.run({[command[0], '-c', 'credential.helper=', *command[1:]]!r}, check=True, env=env)
-    finally:
-        env.pop("COLAB_GIT_TOKEN", None)
-        del token
-'''
-        return f'''import os
-import subprocess
-from pathlib import Path
-repo = Path({remote!r})
-{clone}
-mount = repo / {drive_dir!r}
-if mount.exists() or mount.is_symlink():
-    raise RuntimeError(f"Drive path already exists: {{mount}}; choose another --drive-dir")
-mount.mkdir()
-with (repo / '.git/info/exclude').open('a') as f:
-    f.write({chr(10) + '/' + drive_dir + '/' + chr(10)!r})
-os.chdir(repo)
-'''
+            auth_cmd = [command[0], '-c', 'credential.helper=', *command[1:]]
+            clone = render_template("scripts", "git_clone_auth.py.template", context={"AUTH_COMMAND": repr(auth_cmd)})
+
+        exclude_line = repr(f"\n/{drive_dir}/\n")
+        return render_template(
+            "scripts",
+            "git_clone.py.template",
+            context={
+                "REMOTE": repr(remote),
+                "CLONE_COMMAND": clone,
+                "DRIVE_DIR": repr(drive_dir),
+                "EXCLUDE_LINE": exclude_line,
+            },
+        )
 
     @staticmethod
     def prepare_workspace_code(remote: str, drive_dir: str) -> str:
-        return f'''from pathlib import Path
-workspace = Path({remote!r})
-workspace.mkdir(parents=True, exist_ok=True)
-mount = workspace / {drive_dir!r}
-if mount.exists() or mount.is_symlink():
-    raise RuntimeError(f"Drive path already exists: {{mount}}; choose another --drive-dir")
-mount.mkdir()
-'''
+        return render_template(
+            "scripts",
+            "prepare_workspace.py.template",
+            context={
+                "REMOTE": repr(remote),
+                "DRIVE_DIR": repr(drive_dir),
+            },
+        )
 
 
 def clone_code(url: str, remote: str, branch: Optional[str], drive_dir: str, authenticated: bool = False) -> str:

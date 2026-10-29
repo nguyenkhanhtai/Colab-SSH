@@ -89,16 +89,44 @@ Mở trình duyệt tại **`http://localhost:6767`**.
    - Tùy chọn **Restore from backup**: Dán mã key (`bk-xxxxxxxx`) để phục hồi ngay workspace cũ.
    - Tùy chọn **Initialize from GitHub**: Hỗ trợ clone repo public hoặc nhập PAT (truyền an toàn qua stdin).
 2. **Theo dõi tiến trình**: Progress bar cập nhật chi tiết từng giai đoạn: Khởi tạo VM $\rightarrow$ Cấu hình SSH/GPU $\rightarrow$ Cài đặt AI tools $\rightarrow$ Sync context $\rightarrow$ Mount Drive $\rightarrow$ Sẵn sàng.
-3. **Thao tác 1-click**:
-   - **Open notebook ↗**: Mở thẳng Colab notebook trên trình duyệt.
+3. **Thao tác quản lý & quan sát**:
+   - **Files 📁**: Quan sát & duyệt cây thư mục từ xa trên máy Colab trực tiếp trên trình duyệt (giới hạn 10 mục/nhánh, điều hướng thư mục, hiển thị dung lượng file).
    - **Backup**: Sao lưu ngay workspace hiện tại lên Drive và trả về mã key để copy.
    - **Stop**: Dọn dẹp máy ảo và gỡ cấu hình SSH an toàn.
+   *(Lưu ý: Web Dashboard chỉ phục vụ quan sát, quản lý file và vòng đời session. Việc thực thi job được chạy chuyên trách qua CLI hoặc AI Agent thông qua MCP tools).*
 
 ---
 
 ## ⚡ Gửi & Chạy Job từ xa (Remote Job Execution)
 
-Bên cạnh việc dùng VS Code kết nối tương tác, bạn có thể gửi lệnh hoặc script trực tiếp từ máy tính cá nhân lên Colab GPU server để thực thi:
+Bên cạnh việc dùng VS Code kết nối tương tác, bạn có thể gửi lệnh hoặc script trực tiếp từ máy tính cá nhân lên Colab GPU server để thực thi qua CLI hoặc AI MCP tools.
+
+### 📋 Khai báo Minh bạch & Kiểm tra Tiên quyết (Execution Manifest & Pre-flight Checks)
+Trước khi thực thi bất kỳ job nào, hệ thống tự động kiểm tra các điều kiện bắt buộc và in bảng khai báo chi tiết (**Execution Manifest**):
+```text
+╔════════════════════════════════════════════════════════════════════════════╗
+║                     COLAB JOB EXECUTION MANIFEST                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+[Target & Session]
+  • Session Name  : colab-20261028-202224-b12aac (GPU: T4)
+  • Execution Mode: Background (Detached)
+  • Remote CWD    : /content
+
+[Execution Target]
+  • Local Script  : train.py (Uploaded to /content/train.py)
+  • Local Sync Dir: ./src -> /content
+  • Command       : python3 train.py --epochs 20
+
+[Outputs & Logging]
+  • Terminal Log  : logs/colab-20261028-202224-b12aac/2026-10-29/job-1a2b.log
+  • Pull Artifacts: checkpoints/model.pt, results.csv -> ./downloads
+
+[Telemetry & Experiment Tracking]
+  • Platform      : WANDB (Project: 'solar-filament', Run: 'exp-baseline')
+  • Tracked Metrics: loss, accuracy
+══════════════════════════════════════════════════════════════════════════════
+```
+Nếu thiếu mục tiêu thực thi (không có `command`, `--script`, hay `--config`) hoặc đường dẫn file/thư mục local không tồn tại, hệ thống sẽ báo lỗi cụ thể ngay lập tức mà không gửi request sai lên server.
 
 ### 1. Gửi lệnh chạy trực tiếp (Foreground Streaming):
 ```bash
@@ -136,19 +164,24 @@ colab-ssh job logs job-a1b2c3d4 --session <tên-session> --tail 100
 colab-ssh job stop job-a1b2c3d4 --session <tên-session>
 ```
 
-### 4. Quản lý Job bằng File cấu hình (`colab-job.json`):
+### 4. Quản lý & Chạy Job bằng File cấu hình (`colab-job.json` / `colab-job.yaml`):
+
+Thay vì phải gõ thủ công từng câu lệnh dài và cờ tham số, bạn có thể định nghĩa toàn bộ workflow huấn luyện vào một file cấu hình declarative (hỗ trợ cả **JSON** lẫn **YAML**).
+
 Quy trình gửi job tự động giải quyết bài toán kiểm tra & tái sử dụng tài nguyên:
 1. **Kiểm tra**: Quét xem có session nào đang chạy với GPU tương ứng (ví dụ: `T4`, `L4`, `A100`) hay chưa.
 2. **Tái sử dụng hoặc Tạo mới**: Nếu có sẵn thì dùng luôn; nếu chưa có thì tự động tạo một server Colab mới với GPU tương ứng.
 3. **Thực thi**: Đồng bộ code, chạy lệnh hoặc script, lưu log ngầm và trả về trạng thái.
 
-Khởi tạo file mẫu cấu hình:
+#### Khởi tạo file mẫu cấu hình:
 ```bash
+# Tạo file JSON mẫu:
 colab-ssh job init-config
-# hoặc đặt tên file: colab-ssh job init-config my-train-job.json
+# Hoặc tạo file YAML mẫu:
+colab-ssh job init-config my-train-job.yaml
 ```
 
-Cấu trúc file `colab-job.json`:
+Cấu trúc file `colab-job.json` (hoặc `colab-job.yaml`):
 ```json
 {
   "name": "train-mnist",
@@ -165,18 +198,51 @@ Cấu trúc file `colab-job.json`:
     "checkpoints/model.pt",
     "results.csv"
   ],
-  "download_dir": "./outputs"
+  "download_dir": "./outputs",
+  "log_file": "./logs/train.log"
 }
 ```
 
-Thực thi job qua cấu hình:
-```bash
-# Cách 1: Qua subcommand job run-config
-colab-ssh job run-config colab-job.json
+#### Các cách thực thi qua file cấu hình từ CLI:
 
-# Cách 2: Trực tiếp qua cờ --config trên root CLI
-colab-ssh --config colab-job.json
-```
+1. **Truyền trực tiếp tên file cấu hình (Tự động nhận diện)**:
+   ```bash
+   colab-ssh colab-job.json
+   colab-ssh my-train-job.yaml
+   ```
+
+2. **Dùng cờ viết tắt `-c` hoặc `--config`**:
+   ```bash
+   # Tự động tìm colab-job.json hoặc colab-job.yaml trong thư mục hiện tại:
+   colab-ssh -c
+
+   # Hoặc chỉ định file cụ thể:
+   colab-ssh -c custom-job.json
+   ```
+
+3. **Qua subcommand `job config` hoặc `job run-config`**:
+   ```bash
+   colab-ssh job config
+   colab-ssh job config my-train-job.yaml
+   ```
+
+4. **Tích hợp với `job run` (chạy foreground) và `job submit` (chạy background)**:
+   ```bash
+   # Chạy foreground và stream log trực tiếp:
+   colab-ssh job run -c colab-job.json
+
+   # Gửi chạy ngầm trong background:
+   colab-ssh job submit -c colab-job.json
+   ```
+
+5. **Ghi đè (override) linh hoạt các tham số cấu hình ngay trên CLI**:
+   ```bash
+   # Đổi GPU thành A100 và chạy ở chế độ foreground:
+   colab-ssh -c colab-job.json --gpu A100 --foreground
+
+   # Chỉ định session cụ thể và đổi đường dẫn log:
+   colab-ssh -c colab-job.json -s my-custom-session --log-file ./new.log
+   ```
 
 ---
 
@@ -209,6 +275,111 @@ colab-ssh job run "python3 train.py" --session <tên-session> --download model.p
 
 ---
 
+### 6. Theo dõi Thí nghiệm ML (Weights & Biases Tracking Framework)
+
+Hệ thống tích hợp sẵn framework ghi nhận dữ liệu huấn luyện, siêu tham số và chỉ số đánh giá lên nền tảng **Weights & Biases (W&B)**:
+
+#### Khai báo trong file cấu hình (`colab-job.json` hoặc `colab-job.yaml`):
+```json
+{
+  "name": "train-solar",
+  "gpu": "T4",
+  "command": "python3 train.py",
+  "tracking": {
+    "enabled": true,
+    "provider": "wandb",
+    "project": "solar-filament-detection",
+    "run_name": "run-epoch20",
+    "tags": ["colab", "resnet50"],
+    "config": {
+      "lr": 0.001,
+      "batch_size": 32,
+      "epochs": 20
+    },
+    "metrics": ["loss", "val_loss", "accuracy"]
+  }
+}
+```
+*Hệ thống tự động cài đặt `wandb` trên máy ảo Colab nếu chưa có và truyền toàn bộ biến môi trường cấu hình.*
+
+#### Cách 3: Ghi nhận trong code Python của bạn
+Trong code huấn luyện (`train.py`), bạn có thể dùng trực tiếp `wandb` chuẩn hoặc dùng helper chống crash offline:
+```python
+from colab_session.tracking import get_tracker
+
+# Tự động đọc project, run_name và config từ job setup:
+tracker = get_tracker()
+
+for epoch in range(1, 21):
+    # Huấn luyện...
+    tracker.log({"epoch": epoch, "loss": train_loss, "val_loss": val_loss})
+
+tracker.finish()
+```
+
+---
+
+### 7. Lưu trữ Toàn bộ Terminal Output của Job (Log Files)
+
+Tất cả output terminal (stdout và stderr) của các job đều được tự động lưu trữ theo cấu trúc thư mục quy chuẩn:
+$$\text{logs} / \langle\text{tên-máy}\rangle / \langle\text{date}\rangle / \dots$$
+Ví dụ: `logs/colab-gpu-1/2026-10-28/train.log` hoặc `logs/colab-gpu-1/2026-10-28/job_233000.log`.
+
+- **Chế độ trực tiếp (Foreground)**: Vừa stream realtime ra terminal vừa tự động tee vào thư mục log của máy theo ngày:
+  ```bash
+  # Mặc định tự động ghi vào logs/<session>/<date>/job_<timestamp>.log:
+  colab-ssh job run --session <tên-session> "python3 train.py"
+
+  # Hoặc chỉ định tên file cụ thể (sẽ được đặt trong logs/<session>/<date>/train.log):
+  colab-ssh job run --session <tên-session> --log-file train.log "python3 train.py"
+  ```
+- **Chế độ ngầm (Background / Detached)**: Output được lưu trên server tại `/root/.colab-jobs/<job_id>.log`. Khi gọi `colab-ssh job pull <job_id> --session <tên-session>`, file log sẽ được tự động tải về thư mục `logs/<session>/<date>/` cùng với các artifacts.
+- **Khai báo trong file cấu hình**: Trường `"log_file": "train.log"` trong `colab-job.json` sẽ tự động được định tuyến vào thư mục ngày tương ứng của máy.
+
+---
+
+### 8. Quan sát Đường dẫn & Cây Thư mục Từ xa (Directory Tree Inspection)
+
+Hệ thống cung cấp cơ chế trực quan hóa cây thư mục từ xa trên máy Colab qua SSH, **giới hạn hiển thị tối đa 10 mục trong mỗi nhánh cây thư mục** để giữ cho context gọn gàng và tránh quá tải:
+
+#### 1. Trực tiếp trên Web Browser (Dashboard UI):
+Khởi chạy dashboard bằng lệnh `colab-ssh --serve` rồi mở `http://localhost:6767`:
+- Trên card của từng session đang chạy, bấm nút **Files 📁**.
+- Giao diện cung cấp:
+  - **Điều hướng thư mục linh hoạt**: Nhập đường dẫn bất kỳ (ví dụ `/content/drive` hoặc `/root`), nút **⬆ Up** để lên thư mục cha, hoặc bấm trực tiếp vào tên thư mục con để đi sâu vào bên trong.
+  - **Giới hạn 10 mục/nhánh**: Hiển thị rõ `... (+X more items)` nếu nhánh có nhiều hơn 10 phần tử.
+  - **Tùy chỉnh linh hoạt**: Điều chỉnh độ sâu cây (`Depth: 1, 2, 3`), bật/tắt file ẩn `Hidden`.
+  - **Chế độ xem kép**: Chuyển đổi giữa chế độ tương tác (Interactive View) và dạng cây văn bản thuần túy (Raw ASCII), có nút 1-click để Copy Tree.
+
+#### 2. Qua CLI:
+```bash
+# Xem cây thư mục mặc định tại /content (tối đa 10 mục/nhánh, độ sâu 2):
+colab-ssh job tree --session <tên-session>
+# Hoặc alias ls:
+colab-ssh job ls --session <tên-session>
+
+# Xem đường dẫn cụ thể với độ sâu tùy chọn:
+colab-ssh job tree /content/checkpoints --session <tên-session> --depth 3
+
+# Xem bằng shorthand trên root CLI:
+colab-ssh --session <tên-session> --tree /content
+```
+*Kết quả hiển thị trực quan dạng cây kèm dung lượng file:*
+```text
+/content/
+├── checkpoints/
+│   ├── best_model.pt (42.5 MB)
+│   ├── epoch_1.pt (42.5 MB)
+│   └── ... (+18 more items)
+├── data/
+│   ├── train/
+│   └── val/
+├── train.py (5.2 KB)
+└── requirements.txt (210 B)
+```
+
+---
+
 ## 🤖 Tích hợp AI qua MCP (Model Context Protocol)
 
 Dự án tích hợp sẵn MCP stdio server tuân thủ chuẩn JSON-RPC 2.0, giúp AI Assistant (Claude Desktop, Cursor, Antigravity/Gemini) trực tiếp điều khiển Colab runtime và thực thi jobs.
@@ -236,6 +407,7 @@ Thêm cấu hình sau vào file thiết lập MCP của bạn (ví dụ: `claude
 | :--- | :--- |
 | `colab_list_sessions` | Liệt kê tất cả các Colab session đang hoạt động cùng trạng thái và SSH command. |
 | `colab_resolve_session` | Tự động tìm session có GPU tương ứng đang chạy hoặc tự động tạo mới runtime nếu chưa có. |
+| `colab_tree_directory` | Khám phá cây thư mục và quan sát đường dẫn trên máy Colab qua SSH (tối đa 10 mục/nhánh). |
 | `colab_run_job` | Gửi và chạy job (foreground hoặc background detached) trên runtime đã chọn. |
 | `colab_run_from_config` | Đọc file cấu hình (`colab-job.json`), tự động resolve session GPU và chạy job trọn gói. |
 | `colab_get_job_status` | Lấy trạng thái, exit code, thời gian bắt đầu/kết thúc của job. |
