@@ -1,0 +1,14 @@
+# Colab-SSH Hard Cap Enforcer Hook (Loaded automatically via PYTHONPATH)
+import os
+
+limit_str = os.environ.get("COLAB_JOB_VRAM_LIMIT_MB")
+if limit_str:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            limit_mb = float(limit_str)
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            fraction = min(1.0, max(0.001, (limit_mb * 1024 * 1024) / total_bytes))
+            torch.cuda.set_per_process_memory_fraction(fraction, 0)
+    except Exception:
+        pass

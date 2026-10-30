@@ -50,19 +50,48 @@ class SessionResolver:
         branch: Optional[str] = None,
         drive_dir: str = "drive",
         skip_environment: bool = False,
+        vram: Optional[str | int] = None,
+        force_new: bool = False,
     ) -> Tuple[str, bool]:
         """
         Return (session_name, was_created).
-        Reuses existing running session with matching GPU if available.
+        Reuses existing running session with matching GPU and sufficient VRAM headroom if available.
         Otherwise creates a new session if auto_create is True.
         """
-        gpu = (gpu or "T4").strip().upper()
-        existing = self.find_matching_session(gpu, prefer_session=session_name)
-        if existing:
-            return existing["name"], False
+        from colab_session.jobs.quota import check_session_vram_capacity, parse_vram_to_mb
 
-        if not auto_create:
-            raise GpuAllocationError(f"No running session with GPU '{gpu}' found, and auto_create is disabled.")
+        gpu = (gpu or "T4").strip().upper()
+
+        if not force_new:
+            active = list_sessions(cli=self.cli)
+            matching = []
+            for s in active:
+                if not s.get("running"):
+                    continue
+                sess_gpu = str(s.get("gpu") or "").strip().upper()
+                if sess_gpu == gpu or (gpu == "G4" and "G4" in sess_gpu):
+                    matching.append(s)
+
+            if session_name:
+                matching.sort(key=lambda s: 0 if s["name"] == session_name else 1)
+
+            req_mb = parse_vram_to_mb(vram) if vram is not None else None
+            for cand in matching:
+                cand_name = cand["name"]
+                if req_mb:
+                    has_cap, avail_mb, tot_mb = check_session_vram_capacity(self.cli, cand_name, req_mb)
+                    if not has_cap:
+                        continue
+                return cand_name, False
+
+            if not auto_create:
+                if req_mb and matching:
+                    raise GpuAllocationError(
+                        f"No running session with GPU '{gpu}' has sufficient available VRAM for requested quota '{vram}', and auto_create is disabled."
+                    )
+                raise GpuAllocationError(f"No running session with GPU '{gpu}' found, and auto_create is disabled.")
+        elif not auto_create:
+            raise GpuAllocationError(f"force_new requested, but auto_create is disabled.")
 
         new_name = session_name or ("colab-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:6])
         validate_name(new_name)

@@ -28,6 +28,8 @@ class JobConfig:
     setup_command: Optional[str] = None
     tracking: Optional[Dict[str, Any]] = None
     log_file: Optional[str] = None
+    vram: Optional[str] = None
+    timeout: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -50,6 +52,16 @@ class JobConfig:
             raw["log_file"] = raw.pop("log")
         elif "log_path" in raw and "log_file" not in raw:
             raw["log_file"] = raw.pop("log_path")
+        if "vram_limit" in raw and "vram" not in raw:
+            raw["vram"] = raw.pop("vram_limit")
+        elif "vram_mb" in raw and "vram" not in raw:
+            raw["vram"] = f"{raw.pop('vram_mb')}MB"
+        elif "memory" in raw and "vram" not in raw:
+            raw["vram"] = raw.pop("memory")
+        if "max_time" in raw and "timeout" not in raw:
+            raw["timeout"] = raw.pop("max_time")
+        elif "timeout_seconds" in raw and "timeout" not in raw:
+            raw["timeout"] = f"{raw.pop('timeout_seconds')}s"
 
         allowed = cls.__annotations__
         filtered = {k: v for k, v in raw.items() if k in allowed}
@@ -153,11 +165,16 @@ class JobConfigDispatcher:
         3. Executes the specified command/script on that session.
         Returns: (session_name, was_created, job_or_result).
         """
+        resolver_kwargs = {}
+        if config.vram:
+            resolver_kwargs["vram"] = config.vram
+
         session_name, was_created = self.resolver.resolve_or_create(
             gpu=config.gpu,
             session_name=config.session,
             auto_create=config.auto_create,
             mount_drive=config.mount_drive,
+            **resolver_kwargs,
         )
 
         cmd = config.command
@@ -186,6 +203,8 @@ class JobConfigDispatcher:
             env=config.env,
             setup_command=config.setup_command,
             tracking=config.tracking,
+            vram=config.vram,
+            timeout=config.timeout,
         )
         print(manifest, flush=True)
 
@@ -197,6 +216,12 @@ class JobConfigDispatcher:
             merged_env.update(track_env)
             if track_setup:
                 merged_setup = f"{track_setup} && {merged_setup}" if merged_setup else track_setup
+
+        run_kwargs = {}
+        if config.vram:
+            run_kwargs["vram"] = config.vram
+        if config.timeout:
+            run_kwargs["timeout"] = config.timeout
 
         result = self.job_manager.run(
             session=session_name,
@@ -210,6 +235,7 @@ class JobConfigDispatcher:
             env=merged_env,
             setup_command=merged_setup,
             log_file=config.log_file,
+            **run_kwargs,
         )
         return session_name, was_created, result
 

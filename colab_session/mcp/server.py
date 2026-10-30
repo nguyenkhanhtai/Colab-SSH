@@ -56,6 +56,15 @@ class ColabMCPServer:
                         "session_name": {
                             "type": "string",
                             "description": "Optional custom name if a new session needs to be created"
+                        },
+                        "vram": {
+                            "type": "string",
+                            "description": "Required VRAM quota to allocate and ensure available before reusing session (e.g. '8GB', '8192MB')"
+                        },
+                        "force_new": {
+                            "type": "boolean",
+                            "description": "Force provisioning a new session instead of reusing existing",
+                            "default": False
                         }
                     }
                 }
@@ -110,6 +119,14 @@ class ColabMCPServer:
                         "log_file": {
                             "type": "string",
                             "description": "Path to local log destination (default: logs/<session>/<date>/<job_id>.log)"
+                        },
+                        "vram": {
+                            "type": "string",
+                            "description": "VRAM memory quota to allocate and enforce as hard cap (e.g. '8GB', '4G', '8192MB')"
+                        },
+                        "timeout": {
+                            "type": "string",
+                            "description": "Maximum job execution duration (e.g. '1h', '30m', '3600s')"
                         }
                     }
                 }
@@ -261,6 +278,20 @@ class ColabMCPServer:
                         }
                     }
                 }
+            },
+            {
+                "name": "colab_get_session_metrics",
+                "description": "Inspect live GPU utilization, VRAM usage, temperature, CPU load, RAM, and active job quota ledger of a remote session.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session": {
+                            "type": "string",
+                            "description": "Session name to inspect"
+                        }
+                    },
+                    "required": ["session"]
+                }
             }
         ]
 
@@ -270,14 +301,28 @@ class ColabMCPServer:
             sessions = list_sessions(cli=self.cli)
             return json.dumps(sessions, indent=2)
 
+        elif name == "colab_get_session_metrics":
+            session = args.get("session")
+            if not session:
+                raise ValueError("Session name is required for colab_get_session_metrics")
+            from colab_session.metrics.collector import get_session_metrics
+            metrics = get_session_metrics(self.cli, session)
+            return json.dumps(metrics, indent=2)
+
         elif name == "colab_resolve_session":
             gpu = args.get("gpu", "T4")
             auto_create = bool(args.get("auto_create", True))
             sess_name = args.get("session_name")
+            extra = {}
+            if "vram" in args:
+                extra["vram"] = args["vram"]
+            if "force_new" in args:
+                extra["force_new"] = bool(args["force_new"])
             session, was_created = self.resolver.resolve_or_create(
                 gpu=gpu,
                 session_name=sess_name,
                 auto_create=auto_create,
+                **extra,
             )
             return json.dumps({
                 "session": session,
@@ -300,6 +345,8 @@ class ColabMCPServer:
             download_files = args.get("download_files")
             download_dir = args.get("download_dir")
             log_file = args.get("log_file")
+            vram = args.get("vram")
+            timeout = args.get("timeout")
 
             validate_job_requirements(
                 command=command,
@@ -319,6 +366,8 @@ class ColabMCPServer:
                 download_dir=download_dir,
                 log_file=log_file,
                 gpu=gpu,
+                vram=vram,
+                timeout=timeout,
             )
 
             result = self.job_manager.run(
@@ -332,6 +381,8 @@ class ColabMCPServer:
                 download_files=download_files,
                 download_dir=download_dir,
                 log_file=log_file,
+                vram=vram,
+                timeout=timeout,
             )
             if detached:
                 return json.dumps({

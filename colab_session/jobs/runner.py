@@ -9,6 +9,7 @@ import tarfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from colab_session.jobs.models import Job, JobStatus, resolve_log_file
+from colab_session.jobs.quota import parse_timeout_to_seconds, parse_vram_to_mb
 from colab_session.resources import read_resource, render_template
 from colab_session.storage.backup import ssh_command_for_session
 
@@ -103,6 +104,8 @@ class JobScriptGenerator:
         cwd: str = "/content",
         env: Optional[Dict[str, str]] = None,
         setup_command: Optional[str] = None,
+        vram_mb: Optional[int] = None,
+        timeout_seconds: Optional[int] = None,
     ) -> str:
         escaped_cmd = command.strip()
         custom_env_lines = []
@@ -132,6 +135,8 @@ class JobScriptGenerator:
             "CWD": shlex.quote(cwd),
             "SETUP_BLOCK": setup_block,
             "COMMAND": escaped_cmd,
+            "VRAM_LIMIT_MB": str(vram_mb) if vram_mb else "",
+            "TIMEOUT_SECS": str(timeout_seconds) if timeout_seconds else "",
         }
         return render_template("scripts", "job_wrapper.sh.template", context=context)
 
@@ -234,6 +239,8 @@ class RemoteJobRunner:
         env: Optional[Dict[str, str]] = None,
         setup_command: Optional[str] = None,
         log_file: Optional[str] = None,
+        vram: Optional[str | int] = None,
+        timeout: Optional[str | int] = None,
     ) -> Job:
         """Submit a job to run remotely in the background (detached mode)."""
         job_id = Job.create_id()
@@ -246,12 +253,17 @@ class RemoteJobRunner:
             if not command:
                 command = f"python3 {shlex.quote(remote_script)}"
 
+        vram_mb = parse_vram_to_mb(vram)
+        timeout_seconds = parse_timeout_to_seconds(timeout)
+
         wrapper = JobScriptGenerator.wrapper_script(
             job_id,
             command,
             cwd=cwd,
             env=env,
             setup_command=setup_command,
+            vram_mb=vram_mb,
+            timeout_seconds=timeout_seconds,
         )
         remote_wrapper_path = f"/root/.colab-jobs/{job_id}.sh"
         meta_path = f"/root/.colab-jobs/{job_id}.json"
@@ -268,6 +280,10 @@ class RemoteJobRunner:
             env=env or {},
             setup_command=setup_command,
             log_file=resolved_log,
+            vram=str(vram) if vram is not None else None,
+            vram_mb=vram_mb,
+            timeout=str(timeout) if timeout is not None else None,
+            timeout_seconds=timeout_seconds,
         )
 
         setup_and_start = render_template(
@@ -279,6 +295,8 @@ class RemoteJobRunner:
                 "META_PATH": shlex.quote(meta_path),
                 "META_JSON": json.dumps(job.to_dict(), indent=2),
                 "JOB_ID": job_id,
+                "SITECUSTOMIZE_CONTENT": read_resource("scripts", "sitecustomize.py.template"),
+                "QUOTA_MANAGER_CONTENT": read_resource("scripts", "remote_quota_manager.py"),
             },
         )
         subprocess.run([*ssh, "bash"], input=setup_and_start, text=True, check=True)
@@ -308,9 +326,12 @@ class RemoteJobRunner:
         is_alive = "ALIVE" in pid_part
         status_lines = [ln.strip() for ln in status_part.strip().splitlines() if ln.strip()]
 
+        is_timed_out = False
         for line in status_lines:
             if line.startswith("STARTED "):
                 job.started_at = line.split(" ", 1)[1]
+            elif line.startswith("TIMED_OUT"):
+                is_timed_out = True
             elif line.startswith("EXIT "):
                 parts = line.split(" ", 2)
                 try:
@@ -320,7 +341,9 @@ class RemoteJobRunner:
                 if len(parts) > 2:
                     job.completed_at = parts[2]
 
-        if job.exit_code is not None:
+        if is_timed_out or job.exit_code == 124:
+            job.status = JobStatus.TIMED_OUT.value
+        elif job.exit_code is not None:
             job.status = JobStatus.COMPLETED.value if job.exit_code == 0 else JobStatus.FAILED.value
         elif is_alive:
             job.status = JobStatus.RUNNING.value

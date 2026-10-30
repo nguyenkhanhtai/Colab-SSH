@@ -16,6 +16,7 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPED = "stopped"
+    TIMED_OUT = "timed_out"
 
 
 @dataclass
@@ -37,6 +38,10 @@ class Job:
     env: Dict[str, str] = field(default_factory=dict)
     setup_command: Optional[str] = None
     log_file: Optional[str] = None
+    vram: Optional[str] = None
+    vram_mb: Optional[int] = None
+    timeout: Optional[str] = None
+    timeout_seconds: Optional[int] = None
 
     def __post_init__(self):
         if not self.created_at:
@@ -124,6 +129,8 @@ def format_job_manifest(
     env: Optional[Dict[str, str]] = None,
     setup_command: Optional[str] = None,
     tracking: Optional[Dict[str, Any]] = None,
+    vram: Optional[str] = None,
+    timeout: Optional[str] = None,
 ) -> str:
     """Generate a clean, structured manifest describing everything required and configured for the job execution."""
     lines = [
@@ -134,9 +141,15 @@ def format_job_manifest(
         f"  • Session Name  : {session}" + (f" (GPU: {gpu})" if gpu else ""),
         f"  • Execution Mode: {'Background (Detached)' if detached else 'Foreground (Synchronous)'}",
         f"  • Remote CWD    : {cwd}",
+    ]
+    if vram:
+        lines.append(f"  • VRAM Hard Cap : {vram}")
+    if timeout:
+        lines.append(f"  • Timeout Limit : {timeout}")
+    lines.extend([
         "",
         "[Execution Target]",
-    ]
+    ])
     if script_path:
         lines.append(f"  • Local Script  : {script_path} (Uploaded to {cwd}/{Path(script_path).name})")
     if sync_dir:

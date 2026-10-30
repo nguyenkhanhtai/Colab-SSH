@@ -28,6 +28,8 @@ class JobManager:
         env: Optional[Dict[str, str]] = None,
         setup_command: Optional[str] = None,
         log_file: Optional[str | Path] = None,
+        vram: Optional[str | int] = None,
+        timeout: Optional[str | int] = None,
     ) -> Job | Tuple[int, str]:
         validate_name(session)
         validate_job_requirements(
@@ -48,6 +50,8 @@ class JobManager:
                 env=env,
                 setup_command=setup_command,
                 log_file=str(log_file) if log_file else None,
+                vram=vram,
+                timeout=timeout,
             )
         else:
             return self.runner.run_sync(

@@ -87,6 +87,21 @@ class ManagementCommandHandler:
                 for b in backups:
                     print(f"{b.get('key', ''):<16} {str(b.get('created_at', ''))[:19]:<24} {b.get('session', ''):<20} {str(b.get('size_mb', '')) + ' MB':<10} {b.get('workspace', '')}")
             return 0
+        if getattr(args, "status", None):
+            target = args.status
+            from colab_session.metrics.collector import format_metrics_table, get_session_metrics
+            rows = session_manager.sessions(cli=cli)
+            if not rows:
+                print("No active Colab sessions")
+                return 0
+            if target and target != "all":
+                m = get_session_metrics(cli, target)
+                print(format_metrics_table(m))
+            else:
+                for r in rows:
+                    m = get_session_metrics(cli, r["name"])
+                    print(format_metrics_table(m))
+            return 0
         if args.stop:
             try:
                 session_manager.stop(cli, args.stop)
@@ -120,6 +135,9 @@ class JobCommandHandler:
         submit_p.add_argument("--download", "-dl", nargs="+", metavar="FILE", help="Remote files or patterns to download upon completion")
         submit_p.add_argument("--download-dir", default="./downloads", help="Local directory for downloaded files")
         submit_p.add_argument("--log-file", help="Path to local file where terminal output will be saved")
+        submit_p.add_argument("--vram", help="VRAM memory quota to allocate (e.g. '8GB', '4G', '8192MB')")
+        submit_p.add_argument("--timeout", help="Maximum job execution duration (e.g. '1h', '30m', '3600s')")
+        submit_p.add_argument("--force-new", action="store_true", help="Force creating a new session instead of reusing")
         submit_p.add_argument("--detached", "-d", action="store_true", default=True, help="Run in background (default: true)")
         submit_p.add_argument("--foreground", "-f", dest="detached", action="store_false", help="Run in foreground and stream output")
 
@@ -259,6 +277,10 @@ class JobCommandHandler:
                     cfg.download_files = args.download
                 if getattr(args, "download_dir", None):
                     cfg.download_dir = args.download_dir
+                if getattr(args, "vram", None):
+                    cfg.vram = args.vram
+                if getattr(args, "timeout", None):
+                    cfg.timeout = args.timeout
                 if action == "run":
                     cfg.detached = False
                 elif action == "submit":
@@ -311,6 +333,9 @@ class JobCommandHandler:
                 print(f"Pre-flight requirement check failed:\n  {exc}", file=sys.stderr)
                 return 1
 
+            vram_arg = getattr(args, "vram", None)
+            timeout_arg = getattr(args, "timeout", None)
+
             manifest = format_job_manifest(
                 session=session,
                 command=cmd,
@@ -321,6 +346,8 @@ class JobCommandHandler:
                 download_files=download_files,
                 download_dir=download_dir,
                 log_file=log_file,
+                vram=vram_arg,
+                timeout=timeout_arg,
             )
             print(manifest, flush=True)
             try:
@@ -334,6 +361,8 @@ class JobCommandHandler:
                     download_files=download_files,
                     download_dir=download_dir,
                     log_file=log_file,
+                    vram=vram_arg,
+                    timeout=timeout_arg,
                 )
                 if detached:
                     dl_tip = f"\nPull Outputs: colab-ssh job pull {result.id} --session {session}" if download_files else ""
@@ -543,6 +572,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-environment", action="store_true", help="Skip CLI installation and VS Code profile")
     management = parser.add_mutually_exclusive_group()
     management.add_argument("--list", action="store_true", help="List active sessions")
+    management.add_argument("--status", metavar="SESSION", nargs="?", const="all", help="Display live GPU/CPU/RAM and Quota metrics for session(s)")
     management.add_argument("--stop", metavar="SESSION", help="Stop a session and remove its SSH state")
     management.add_argument("--serve", action="store_true", help="Run the local multi-session dashboard")
     management.add_argument("--backup", metavar="SESSION", help="Backup a running session workspace to Google Drive")
@@ -673,7 +703,7 @@ def main(argv=None) -> int:
                   f"Status:  colab-ssh job status {result.id} --session {session}{dl_tip}")
             return 0
 
-    if args.list or args.stop or args.serve or args.backup or args.list_backups:
+    if args.list or getattr(args, "status", None) or args.stop or args.serve or args.backup or args.list_backups:
         if args.repo:
             parser.error("A repository URL cannot be combined with management commands")
         if args.restore:

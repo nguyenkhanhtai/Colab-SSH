@@ -17,13 +17,32 @@ echo "STARTED $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STATUS_FILE"
 export PATH="/root/.local/bin:/usr/local/cuda/bin:$PATH"
 export LD_LIBRARY_PATH="/usr/lib64-nvidia:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PYTHONUNBUFFERED=1
+
+# 3. Automatic VRAM Hard Cap & Resource Ledger Hook
+if [ -n "{{VRAM_LIMIT_MB}}" ] && [ "{{VRAM_LIMIT_MB}}" -gt 0 ] 2>/dev/null; then
+    export COLAB_JOB_VRAM_LIMIT_MB="{{VRAM_LIMIT_MB}}"
+    export PYTHONPATH="/root/.colab-jobs:${PYTHONPATH:+:$PYTHONPATH}"
+    python3 /root/.colab-jobs/remote_quota_manager.py reserve "{{JOB_ID}}" "{{VRAM_LIMIT_MB}}" "$$" >/dev/null 2>&1 || true
+fi
+
+# Trap to release VRAM quota on any exit signal
+trap 'python3 /root/.colab-jobs/remote_quota_manager.py release "{{JOB_ID}}" >/dev/null 2>&1 || true' EXIT
+
 {{CUSTOM_ENV}}
 cd {{CWD}} || exit 1
 {{SETUP_BLOCK}}
-# 3. Execute main command
-{{COMMAND}}
-EXIT_CODE=$?
+
+# 4. Execute main command with optional timeout guard
+if [ -n "{{TIMEOUT_SECS}}" ] && [ "{{TIMEOUT_SECS}}" -gt 0 ] 2>/dev/null; then
+    timeout --kill-after=15s "{{TIMEOUT_SECS}}s" {{COMMAND}}
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 124 ]; then
+        echo "TIMED_OUT $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STATUS_FILE"
+    fi
+else
+    {{COMMAND}}
+    EXIT_CODE=$?
+fi
 
 echo "EXIT $EXIT_CODE $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$STATUS_FILE"
 exit $EXIT_CODE
-
