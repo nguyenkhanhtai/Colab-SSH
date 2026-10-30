@@ -38,10 +38,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('${E(s.stage)}', colab_server.HTML)
         self.assertIn('.auth-link.hidden{display:none}', colab_server.HTML)
         self.assertIn("Preparing session: '+x.stage+' · '+x.progress+'%'", colab_server.HTML)
-        self.assertIn('id="treeDialog"', colab_server.HTML)
-        self.assertIn('Files 📁', colab_server.HTML)
-        self.assertIn('openTreeModal', colab_server.HTML)
-        self.assertNotIn('<form id="compute"', colab_server.HTML)
+        self.assertIn('id="treeDialog"', colab_server.get_dashboard_html())
+        self.assertIn('Files 📁', colab_server.get_dashboard_html())
+        self.assertIn('openTreeModal', colab_server.get_dashboard_html())
+        self.assertIn('id="metricsDialog"', colab_server.get_dashboard_html())
+        self.assertIn('Metrics 📊', colab_server.get_dashboard_html())
+        self.assertIn('openMetricsModal', colab_server.get_dashboard_html())
+        self.assertNotIn('<form id="compute"', colab_server.get_dashboard_html())
         self.assertNotIn('id="jobDialog"', colab_server.HTML)
         self.assertNotIn('openJobModal', colab_server.HTML)
         self.assertNotIn('Open notebook', colab_server.HTML)
@@ -227,6 +230,66 @@ class ServerAppTests(unittest.TestCase):
                 max_items=10,
                 show_hidden=False,
             )
+
+    def test_session_metrics_endpoint(self):
+        app = colab_server.App('/bin/colab')
+        mock_metrics = {
+            'session': 'session-1',
+            'gpu': {'name': 'Tesla T4', 'util_pct': 0, 'memory_used_mb': 100, 'memory_total_mb': 15360, 'temperature_c': 35},
+            'cpu': {'load_1m': 0.1, 'load_5m': 0.2, 'load_15m': 0.3},
+            'ram': {'used_mb': 1000, 'total_mb': 12000},
+            'quota': {'total_vram_mb': 15360, 'allocated_vram_mb': 0, 'available_vram_mb': 15360, 'allocations': {}}
+        }
+        with patch('colab_session.metrics.collector.get_session_metrics', return_value=mock_metrics) as mock_get_metrics, \
+                patch('colab_session.server.app.session_manager.validate_name'):
+            handler_cls = colab_server.handler_for(app)
+            handler = handler_cls.__new__(handler_cls)
+            handler.path = '/api/sessions/session-1/metrics'
+            replied = {}
+            def mock_reply(data, status=200):
+                replied['data'] = data
+                replied['status'] = status
+            handler.reply = mock_reply
+            handler.do_GET()
+
+            self.assertEqual(replied['status'], 200)
+            self.assertEqual(replied['data']['session'], 'session-1')
+            self.assertEqual(replied['data']['gpu']['name'], 'Tesla T4')
+            mock_get_metrics.assert_called_once_with('/bin/colab', 'session-1')
+
+    def test_run_job_passes_vram_and_timeout(self):
+        app = colab_server.App('/bin/colab')
+        with patch.object(app.job_manager, 'run') as mock_run, \
+                patch('colab_session.server.app.session_manager.validate_name'):
+            from colab_session.jobs.models import Job, JobStatus
+            mock_job = Job(id="job-1", command="python3 test.py", session="session-1", cwd="/content", status=JobStatus.RUNNING)
+            mock_run.return_value = mock_job
+
+            handler_cls = colab_server.handler_for(app)
+            handler = handler_cls.__new__(handler_cls)
+            handler.headers = {}
+            handler.path = '/api/sessions/session-1/jobs'
+            payload = {
+                'command': 'python3 test.py',
+                'detached': True,
+                'vram': '8GB',
+                'timeout': '1h'
+            }
+            handler.body = lambda: payload
+            replied = {}
+            def mock_reply(data, status=200):
+                replied['data'] = data
+                replied['status'] = status
+            handler.reply = mock_reply
+            handler.validate_origin = lambda: True
+            handler.do_POST()
+
+            self.assertEqual(replied['status'], 200)
+            self.assertEqual(replied['data']['id'], 'job-1')
+            mock_run.assert_called_once()
+            _, kwargs = mock_run.call_args
+            self.assertEqual(kwargs['vram'], '8GB')
+            self.assertEqual(kwargs['timeout'], '1h')
 
 
 if __name__ == '__main__':

@@ -229,6 +229,11 @@ class App:
             job['confirmed'] = True
 
     # Remote job management methods
+    def session_metrics(self, session: str) -> Dict[str, Any]:
+        session_manager.validate_name(session)
+        from colab_session.metrics.collector import get_session_metrics
+        return get_session_metrics(self.cli, session)
+
     def run_job(self, session: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         command = payload.get("command", "")
         detached = bool(payload.get("detached", True))
@@ -239,6 +244,8 @@ class App:
         download_dir = payload.get("download_dir")
         env = dict(payload.get("env") or {})
         setup_command = payload.get("setup_command")
+        vram = payload.get("vram")
+        timeout = payload.get("timeout")
 
         tracking = payload.get("tracking")
         if tracking:
@@ -260,6 +267,8 @@ class App:
             download_dir=download_dir,
             env=env,
             setup_command=setup_command,
+            vram=vram,
+            timeout=timeout,
         )
         if detached:
             return result.to_dict()
@@ -318,7 +327,7 @@ def handler_for(app: App):
             path = urlparse(self.path).path
             try:
                 if path == '/':
-                    data = HTML.encode()
+                    data = get_dashboard_html().encode()
                     self.send_response(200)
                     self.send_header('Content-Type', 'text/html; charset=utf-8')
                     self.send_header('Cache-Control', 'no-store')
@@ -330,6 +339,9 @@ def handler_for(app: App):
                 elif re.fullmatch(r'/api/sessions/[^/]+/url', path):
                     session_name = unquote(path.split('/')[3])
                     self.reply({'url': session_manager.notebook_url(app.cli, session_name)})
+                elif re.fullmatch(r'/api/sessions/[^/]+/metrics', path):
+                    session_name = unquote(path.split('/')[3])
+                    self.reply(app.session_metrics(session_name))
                 elif re.fullmatch(r'/api/jobs/[^/]+', path):
                     job_name = unquote(path.split('/')[3])
                     self.reply(app.job_status(job_name))
