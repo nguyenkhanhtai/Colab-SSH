@@ -77,8 +77,11 @@ class ColabCliClient:
 
     @staticmethod
     def live_names(cli: str) -> Set[str]:
-        result = subprocess.run([cli, 'sessions'], check=True, capture_output=True, text=True)
-        return set(re.findall(r'^\[([^]\n]+)\]', result.stdout, re.MULTILINE))
+        try:
+            result = subprocess.run([cli, 'sessions'], check=True, capture_output=True, text=True)
+            return set(re.findall(r'^\[([^]\n]+)\]', result.stdout, re.MULTILINE))
+        except (subprocess.CalledProcessError, subprocess.SubprocessError):
+            return set()
 
     @staticmethod
     def stop_session(cli: str, name: str) -> None:

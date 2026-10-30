@@ -61,8 +61,6 @@ def main():
         print(str(exc), file=sys.stderr)
         return 1
     cmd = [args.cli, 'ssh', '--proxy-mode', '-s', args.session]
-    state = json.loads((Path.home() / '.config/colab-cli/sessions.json').read_text())
-    cmd += ['--gpu', args.gpu or state[args.session]['accelerator']]
     if args.identity:
         cmd += ['--identity', args.identity]
     os.execv(args.cli, cmd)
