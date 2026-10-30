@@ -25,9 +25,16 @@ class JobFileSynchronizer:
 
         archive = BytesIO()
         with tarfile.open(fileobj=archive, mode="w:gz") as tar:
-            tar.add(path, arcname=path.name)
+            if path.is_dir():
+                for item in path.iterdir():
+                    if item.name in {".venv", ".venv-colab", "__pycache__", ".git"}:
+                        continue
+                    tar.add(item, arcname=item.name)
+                remote_target = remote_dest_dir
+            else:
+                tar.add(path, arcname=path.name)
+                remote_target = f"{remote_dest_dir}/{path.name}"
 
-        remote_target = f"{remote_dest_dir}/{path.name}"
         mkdir_cmd = f"mkdir -p {shlex.quote(remote_dest_dir)} && tar -xzf - -C {shlex.quote(remote_dest_dir)}"
         subprocess.run([*ssh_cmd, mkdir_cmd], input=archive.getvalue(), check=True)
         return remote_target
