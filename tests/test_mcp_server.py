@@ -57,6 +57,8 @@ class TestColabMCPServer(unittest.TestCase):
         self.assertIn("colab_download_files", tool_names)
         self.assertIn("colab_pull_job_artifacts", tool_names)
         self.assertIn("colab_tree_directory", tool_names)
+        self.assertIn("colab_get_session_metrics", tool_names)
+        self.assertIn("colab_get_account_quota", tool_names)
 
     @patch("colab_session.mcp.server.list_sessions")
     def test_call_list_sessions(self, mock_sessions):
@@ -307,6 +309,27 @@ class TestColabMCPServer(unittest.TestCase):
             max_items=10,
             show_hidden=False,
         )
+
+    @patch("colab_session.session.manager.get_account_quota")
+    def test_call_get_account_quota(self, mock_quota):
+        mock_quota.return_value = {
+            "balance": 305.46,
+            "usage_rate_hourly": 8.88,
+            "active_assignments": 1,
+            "hours_remaining": 34.4,
+            "status": "ok"
+        }
+        req = {
+            "jsonrpc": "2.0",
+            "id": 88,
+            "method": "tools/call",
+            "params": {"name": "colab_get_account_quota", "arguments": {}}
+        }
+        res = self.server.handle_request(req)
+        self.assertEqual(res["id"], 88)
+        data = json.loads(res["result"]["content"][0]["text"])
+        self.assertEqual(data["balance"], 305.46)
+        self.assertEqual(data["hours_remaining"], 34.4)
 
     def test_ping(self):
         req = {"jsonrpc": "2.0", "id": 13, "method": "ping"}

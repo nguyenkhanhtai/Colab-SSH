@@ -52,6 +52,31 @@ class SessionManagerTests(unittest.TestCase):
         run.assert_called_once_with(['/bin/colab', 'url', '-s', 'alpha'], check=True,
                                     capture_output=True, text=True)
 
+    def test_get_account_quota_parses_cli_output(self):
+        mock_output = "Current balance: 250.50 compute units\nUsage rate: 5.00/hr\nActive assignments: 2"
+        completed = subprocess.CompletedProcess([], 0, stdout=mock_output)
+        with patch('colab_session.session.manager.subprocess.run', return_value=completed) as run, \
+                patch.dict('sys.modules', {'colab_cli.common': None}):
+            q = session_manager.get_account_quota('/bin/colab')
+            self.assertEqual(q['status'], 'ok')
+            self.assertEqual(q['balance'], 250.5)
+            self.assertEqual(q['usage_rate_hourly'], 5.0)
+            self.assertEqual(q['active_assignments'], 2)
+            self.assertEqual(q['hours_remaining'], 50.1)
+
+    def test_format_account_quota_table(self):
+        quota = {
+            'balance': 300.0,
+            'usage_rate_hourly': 10.0,
+            'active_assignments': 1,
+            'hours_remaining': 30.0,
+            'status': 'ok'
+        }
+        table = session_manager.format_account_quota_table(quota)
+        self.assertIn("300.00 units", table)
+        self.assertIn("10.00 units/hr", table)
+        self.assertIn("~30.0 hours", table)
+
 
 if __name__ == '__main__':
     unittest.main()

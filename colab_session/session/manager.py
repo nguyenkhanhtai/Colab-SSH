@@ -192,3 +192,82 @@ def stop(cli: str, name: str) -> None:
 def notebook_url(cli: str, name: str) -> str:
     return _default_manager.notebook_url(cli, name)
 
+
+def get_account_quota(cli: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieve Google Colab account compute unit balance, burn rate, and remaining runtime."""
+    # Strategy 1: Fast direct python import if colab_cli library is available in current env
+    try:
+        from colab_cli.common import state
+        info = state.client.get_consumption_user_info()
+        balance = round(float(info.paid_compute_units_balance), 2)
+        rate = round(float(info.consumption_rate_hourly), 2)
+        assignments = int(info.assignments_count)
+        hours_remaining = round(balance / rate, 1) if rate > 0 else None
+        return {
+            "balance": balance,
+            "usage_rate_hourly": rate,
+            "active_assignments": assignments,
+            "hours_remaining": hours_remaining,
+            "status": "ok",
+        }
+    except Exception:
+        pass
+
+    # Strategy 2: CLI invocation of `colab usage`
+    cli_cmd = cli or find_colab_cli() or "colab"
+    try:
+        proc = subprocess.run([cli_cmd, "usage"], capture_output=True, text=True, check=True, timeout=10)
+        out = proc.stdout.strip()
+        balance_match = re.search(r"Current balance:\s*([\d\.]+)\s*compute units", out, re.IGNORECASE)
+        rate_match = re.search(r"Usage rate:\s*([\d\.]+)/hr", out, re.IGNORECASE)
+        assign_match = re.search(r"Active assignments:\s*(\d+)", out, re.IGNORECASE)
+
+        balance = float(balance_match.group(1)) if balance_match else 0.0
+        rate = float(rate_match.group(1)) if rate_match else 0.0
+        assignments = int(assign_match.group(1)) if assign_match else 0
+        hours_remaining = round(balance / rate, 1) if rate > 0 else None
+
+        return {
+            "balance": balance,
+            "usage_rate_hourly": rate,
+            "active_assignments": assignments,
+            "hours_remaining": hours_remaining,
+            "status": "ok",
+        }
+    except Exception as exc:
+        return {
+            "balance": None,
+            "usage_rate_hourly": None,
+            "active_assignments": None,
+            "hours_remaining": None,
+            "status": "error",
+            "error": str(exc),
+        }
+
+
+def format_account_quota_table(quota: Dict[str, Any]) -> str:
+    """Format Google Colab account compute unit quota into a readable manifest."""
+    lines = [
+        "╔════════════════════════════════════════════════════════════════════════════╗",
+        "║                     GOOGLE COLAB COMPUTE QUOTA                             ║",
+        "╚════════════════════════════════════════════════════════════════════════════╝",
+    ]
+    if quota.get("status") == "error":
+        lines.append(f"  • Status                : Error ({quota.get('error', 'Unknown error')})")
+    else:
+        balance = quota.get("balance")
+        rate = quota.get("usage_rate_hourly")
+        assignments = quota.get("active_assignments", 0)
+        remaining = quota.get("hours_remaining")
+
+        lines.append(f"  • Compute Units Balance : {balance:,.2f} units" if balance is not None else "  • Compute Units Balance : N/A")
+        lines.append(f"  • Active Assignments    : {assignments} running runtime(s)")
+        lines.append(f"  • Hourly Consumption    : {rate:,.2f} units/hr" if rate is not None else "  • Hourly Consumption    : N/A")
+        if remaining is not None:
+            lines.append(f"  • Estimated Runtime Left: ~{remaining} hours (at current burn rate)")
+        else:
+            lines.append("  • Estimated Runtime Left: Idle / No active consumption")
+
+    lines.append("═" * 78)
+    return "\n".join(lines)
+

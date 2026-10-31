@@ -229,6 +229,9 @@ class App:
             job['confirmed'] = True
 
     # Remote job management methods
+    def account_quota(self) -> Dict[str, Any]:
+        return session_manager.get_account_quota(self.cli)
+
     def session_metrics(self, session: str) -> Dict[str, Any]:
         session_manager.validate_name(session)
         from colab_session.metrics.collector import get_session_metrics
@@ -336,6 +339,8 @@ def handler_for(app: App):
                     self.wfile.write(data)
                 elif path == '/api/sessions':
                     self.reply({'sessions': app.dashboard_sessions()})
+                elif path == '/api/quota':
+                    self.reply(app.account_quota())
                 elif re.fullmatch(r'/api/sessions/[^/]+/url', path):
                     session_name = unquote(path.split('/')[3])
                     self.reply({'url': session_manager.notebook_url(app.cli, session_name)})

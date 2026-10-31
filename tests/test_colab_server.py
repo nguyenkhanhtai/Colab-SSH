@@ -44,6 +44,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('id="metricsDialog"', colab_server.get_dashboard_html())
         self.assertIn('Metrics 📊', colab_server.get_dashboard_html())
         self.assertIn('openMetricsModal', colab_server.get_dashboard_html())
+        self.assertIn('id="cuBalance"', colab_server.get_dashboard_html())
+        self.assertIn('id="metricCuBalance"', colab_server.get_dashboard_html())
         self.assertNotIn('<form id="compute"', colab_server.get_dashboard_html())
         self.assertNotIn('id="jobDialog"', colab_server.HTML)
         self.assertNotIn('openJobModal', colab_server.HTML)
@@ -290,6 +292,31 @@ class ServerAppTests(unittest.TestCase):
             _, kwargs = mock_run.call_args
             self.assertEqual(kwargs['vram'], '8GB')
             self.assertEqual(kwargs['timeout'], '1h')
+
+    def test_account_quota_endpoint(self):
+        app = colab_server.App('/bin/colab')
+        mock_quota = {
+            'balance': 305.46,
+            'usage_rate_hourly': 8.88,
+            'active_assignments': 1,
+            'hours_remaining': 34.4,
+            'status': 'ok'
+        }
+        with patch('colab_session.server.app.session_manager.get_account_quota', return_value=mock_quota) as mock_get_q:
+            handler_cls = colab_server.handler_for(app)
+            handler = handler_cls.__new__(handler_cls)
+            handler.path = '/api/quota'
+            replied = {}
+            def mock_reply(data, status=200):
+                replied['data'] = data
+                replied['status'] = status
+            handler.reply = mock_reply
+            handler.do_GET()
+
+            self.assertEqual(replied['status'], 200)
+            self.assertEqual(replied['data']['balance'], 305.46)
+            self.assertEqual(replied['data']['usage_rate_hourly'], 8.88)
+            mock_get_q.assert_called_once_with('/bin/colab')
 
 
 if __name__ == '__main__':

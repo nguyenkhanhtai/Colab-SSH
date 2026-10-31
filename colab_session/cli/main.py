@@ -87,20 +87,28 @@ class ManagementCommandHandler:
                 for b in backups:
                     print(f"{b.get('key', ''):<16} {str(b.get('created_at', ''))[:19]:<24} {b.get('session', ''):<20} {str(b.get('size_mb', '')) + ' MB':<10} {b.get('workspace', '')}")
             return 0
+        if getattr(args, "quota", False):
+            from colab_session.session.manager import format_account_quota_table, get_account_quota
+            q = get_account_quota(cli)
+            print(format_account_quota_table(q))
+            return 0
         if getattr(args, "status", None):
             target = args.status
             from colab_session.metrics.collector import format_metrics_table, get_session_metrics
+            from colab_session.session.manager import format_account_quota_table, get_account_quota
             rows = session_manager.sessions(cli=cli)
             if not rows:
-                print("No active Colab sessions")
-                return 0
-            if target and target != "all":
+                print("No active Colab sessions\n")
+            elif target and target != "all":
                 m = get_session_metrics(cli, target)
                 print(format_metrics_table(m))
             else:
                 for r in rows:
                     m = get_session_metrics(cli, r["name"])
                     print(format_metrics_table(m))
+            q = get_account_quota(cli)
+            print()
+            print(format_account_quota_table(q))
             return 0
         if args.stop:
             try:
@@ -573,6 +581,7 @@ def build_parser() -> argparse.ArgumentParser:
     management = parser.add_mutually_exclusive_group()
     management.add_argument("--list", action="store_true", help="List active sessions")
     management.add_argument("--status", metavar="SESSION", nargs="?", const="all", help="Display live GPU/CPU/RAM and Quota metrics for session(s)")
+    management.add_argument("--quota", action="store_true", help="Display Google Colab account compute unit balance and burn rate")
     management.add_argument("--stop", metavar="SESSION", help="Stop a session and remove its SSH state")
     management.add_argument("--serve", action="store_true", help="Run the local multi-session dashboard")
     management.add_argument("--backup", metavar="SESSION", help="Backup a running session workspace to Google Drive")
@@ -703,7 +712,7 @@ def main(argv=None) -> int:
                   f"Status:  colab-ssh job status {result.id} --session {session}{dl_tip}")
             return 0
 
-    if args.list or getattr(args, "status", None) or args.stop or args.serve or args.backup or args.list_backups:
+    if args.list or getattr(args, "status", None) or getattr(args, "quota", False) or args.stop or args.serve or args.backup or args.list_backups:
         if args.repo:
             parser.error("A repository URL cannot be combined with management commands")
         if args.restore:

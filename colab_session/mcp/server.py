@@ -292,6 +292,14 @@ class ColabMCPServer:
                     },
                     "required": ["session"]
                 }
+            },
+            {
+                "name": "colab_get_account_quota",
+                "description": "Get current Google Colab account compute unit balance, hourly consumption rate, active assignments, and estimated remaining runtime hours.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ]
 
@@ -301,12 +309,19 @@ class ColabMCPServer:
             sessions = list_sessions(cli=self.cli)
             return json.dumps(sessions, indent=2)
 
+        elif name == "colab_get_account_quota":
+            from colab_session.session.manager import get_account_quota
+            quota = get_account_quota(cli=self.cli)
+            return json.dumps(quota, indent=2)
+
         elif name == "colab_get_session_metrics":
             session = args.get("session")
             if not session:
                 raise ValueError("Session name is required for colab_get_session_metrics")
             from colab_session.metrics.collector import get_session_metrics
+            from colab_session.session.manager import get_account_quota
             metrics = get_session_metrics(self.cli, session)
+            metrics["account_quota"] = get_account_quota(self.cli)
             return json.dumps(metrics, indent=2)
 
         elif name == "colab_resolve_session":
